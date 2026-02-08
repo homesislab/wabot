@@ -55,39 +55,12 @@ jobs:
     needs: [frontend-build, backend-check]
     runs-on: self-hosted
     if: github.ref == 'refs/heads/main'
-    environment: home
     steps:
-      - name: Install Cloudflared
+      - name: Deploy Locally
         run: |
-          curl -L --output cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
-          sudo dpkg -i cloudflared.deb
-
-      - name: Deploy to Server (Native SSH)
-        env:
-          SSH_PRIVATE_KEY: ${{ secrets.SSH_KEY }}
-          SSH_USER: ${{ secrets.SSH_USER }}
-          CF_ID: ${{ secrets.CF_CLIENT_ID }}
-          CF_SECRET: ${{ secrets.CF_CLIENT_SECRET }}
-        run: |
-          # 1. Siapkan folder .ssh dan file private key
-          mkdir -p ~/.ssh
-          echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
-          
-          # 2. Atur Config agar otomatis pakai Cloudflared saat panggil hostname
-          # Penting: Kita masukkan konfigurasi ProxyCommand ke file config agar lebih rapi
-          echo "Host ssh.homesislab.my.id" >> ~/.ssh/config
-          echo "  StrictHostKeyChecking no" >> ~/.ssh/config
-          echo "  User $SSH_USER" >> ~/.ssh/config
-          echo "  ProxyCommand cloudflared access ssh --hostname %h --id $CF_ID --secret $CF_SECRET" >> ~/.ssh/config
-
-          # 3. Jalankan Script Deploy
-          # Karena config sudah diatur di atas, kita cukup panggil ssh hostname saja
-          ssh ssh.homesislab.my.id << 'EOF'
-            cd /home/gie/workspace/wabot
-            git fetch origin main
-            git reset --hard origin/main
-            docker compose up -d --build
-            docker image prune -f
-          EOF
+          cd /home/gie/workspace/wabot
+          git fetch origin main
+          git reset --hard origin/main
+          docker compose up -d --build
+          docker image prune -f
 
