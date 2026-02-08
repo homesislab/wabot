@@ -8,7 +8,7 @@ on:
 
 jobs:
   frontend-build:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
     - uses: actions/checkout@v4
     
@@ -32,7 +32,7 @@ jobs:
       run: npm run build
 
   backend-check:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
     - uses: actions/checkout@v4
     
@@ -53,7 +53,7 @@ jobs:
 
   deploy:
     needs: [frontend-build, backend-check]
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     if: github.ref == 'refs/heads/main'
     environment: home
     steps:
