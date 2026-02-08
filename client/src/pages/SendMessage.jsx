@@ -17,6 +17,7 @@ const SendMessage = () => {
     });
     const [status, setStatus] = useState('');
     const [uploading, setUploading] = useState(false);
+    const [showGallery, setShowGallery] = useState(false);
     const [galleryImages, setGalleryImages] = useState([]);
     const [isAiModalOpen, setIsAiModalOpen] = useState(false);
     const [aiBriefing, setAiBriefing] = useState('');
