@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import api from '../api';
-import { Send, Image as ImageIcon, Upload, X, Grid } from 'lucide-react';
+import { Send, Image as ImageIcon, Upload, X, Grid, Sparkles } from 'lucide-react';
 
 const SendMessage = () => {
     const [sessions, setSessions] = useState([]);
@@ -17,8 +17,10 @@ const SendMessage = () => {
     });
     const [status, setStatus] = useState('');
     const [uploading, setUploading] = useState(false);
-    const [showGallery, setShowGallery] = useState(false);
     const [galleryImages, setGalleryImages] = useState([]);
+    const [isAiModalOpen, setIsAiModalOpen] = useState(false);
+    const [aiBriefing, setAiBriefing] = useState('');
+    const [isGenerating, setIsGenerating] = useState(false);
 
     useEffect(() => {
         const fetchInitial = async () => {
@@ -92,6 +94,27 @@ const SendMessage = () => {
         setShowGallery(false);
     };
 
+    const handleGenerateAi = async () => {
+        if (!aiBriefing) return;
+        setIsGenerating(true);
+        setStatus('Generating AI response...');
+        try {
+            const res = await api.post('/ai/chat', {
+                message: aiBriefing,
+                systemInstruction: "You are a professional marketing and communications assistant. Generate a high-quality WhatsApp message based on the user's brief. Output ONLY the message text without any preamble or conversational fillers."
+            });
+            setFormData(prev => ({ ...prev, content: res.data.response }));
+            setIsAiModalOpen(false);
+            setAiBriefing('');
+            setStatus('AI Content generated!');
+        } catch (error) {
+            console.error("AI Generation failed", error);
+            setStatus(error.response?.data?.error || 'AI Generation failed');
+        } finally {
+            setIsGenerating(false);
+        }
+    };
+
     const handleSubmit = async (e) => {
         e.preventDefault();
         setStatus('Sending...');
@@ -144,8 +167,8 @@ const SendMessage = () => {
                                             type="button"
                                             onClick={() => setInputMode(mode)}
                                             className={`flex-1 capitalize py-2 text-sm font-medium rounded-md transition-all ${inputMode === mode
-                                                    ? 'bg-white text-sisia-primary shadow-sm'
-                                                    : 'text-gray-500 hover:text-gray-700'
+                                                ? 'bg-white text-sisia-primary shadow-sm'
+                                                : 'text-gray-500 hover:text-gray-700'
                                                 }`}
                                         >
                                             {mode}
@@ -202,7 +225,16 @@ const SendMessage = () => {
                         {/* Right Column: Message Content */}
                         <div className="space-y-6">
                             <div>
-                                <label className="block text-sm font-semibold text-gray-700 mb-2">Message Content</label>
+                                <div className="flex items-center justify-between mb-2">
+                                    <label className="block text-sm font-semibold text-gray-700">Message Content</label>
+                                    <button
+                                        type="button"
+                                        onClick={() => setIsAiModalOpen(true)}
+                                        className="text-xs font-bold text-sisia-primary flex items-center gap-1 hover:bg-emerald-50 px-2 py-1 rounded-lg transition-all"
+                                    >
+                                        <Sparkles size={14} /> Generate with AI
+                                    </button>
+                                </div>
                                 <div className="flex gap-4 mb-3">
                                     <label className={`flex-1 cursor-pointer border rounded-lg p-3 flex items-center justify-center gap-2 transition-all ${formData.type === 'TEXT' ? 'bg-blue-50 border-sisia-primary text-sisia-primary' : 'bg-white hover:bg-gray-50 text-gray-600'}`}>
                                         <input type="radio" className="hidden" name="msgType" checked={formData.type === 'TEXT'} onChange={() => setFormData({ ...formData, type: 'TEXT' })} />
@@ -315,6 +347,73 @@ const SendMessage = () => {
                                 </div>
                             ))}
                             {galleryImages.length === 0 && <p className="col-span-full text-center text-gray-500">No images found.</p>}
+                        </div>
+                    </div>
+                </div>
+            )}
+            {/* AI Generation Modal */}
+            {isAiModalOpen && (
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                    <div className="bg-white rounded-2xl w-full max-w-lg p-6 shadow-2xl animate-in fade-in zoom-in duration-200">
+                        <div className="flex justify-between items-center mb-6">
+                            <div className="flex items-center gap-2">
+                                <div className="p-2 bg-emerald-100 text-emerald-600 rounded-lg">
+                                    <Sparkles size={20} />
+                                </div>
+                                <h3 className="text-xl font-bold">Generate with AI</h3>
+                            </div>
+                            <button onClick={() => setIsAiModalOpen(false)} className="text-gray-400 hover:text-gray-600 transition-colors p-1">
+                                <X size={20} />
+                            </button>
+                        </div>
+
+                        <div className="space-y-4">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2 italic">
+                                    "Briefing: Apa yang ingin Anda sampaikan? (Misal: Buatkan ucapan selamat ramadhan untuk pelanggan setia)"
+                                </label>
+                                <textarea
+                                    className="w-full border border-gray-200 p-4 rounded-xl outline-none focus:ring-2 focus:ring-sisia-primary min-h-[120px] transition-all"
+                                    value={aiBriefing}
+                                    onChange={e => setAiBriefing(e.target.value)}
+                                    placeholder="Tulis briefing pesan di sini..."
+                                    autoFocus
+                                />
+                            </div>
+
+                            <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 flex gap-3">
+                                <div className="text-blue-500 shrink-0">
+                                    <Sparkles size={18} />
+                                </div>
+                                <p className="text-sm text-blue-700">
+                                    AI akan membantu merangkai kalimat profesional dan menarik sesuai dengan instruksi yang Anda berikan.
+                                </p>
+                            </div>
+                        </div>
+
+                        <div className="mt-8 flex justify-end gap-3">
+                            <button
+                                type="button"
+                                onClick={() => setIsAiModalOpen(false)}
+                                className="px-5 py-2.5 text-gray-600 hover:bg-gray-100 rounded-xl font-medium transition-colors"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handleGenerateAi}
+                                disabled={isGenerating || !aiBriefing}
+                                className={`px-6 py-2.5 bg-sisia-primary text-white rounded-xl font-bold flex items-center gap-2 transition-all shadow-lg shadow-sisia-primary/20 ${isGenerating || !aiBriefing ? 'opacity-50 cursor-not-allowed' : 'hover:bg-emerald-700 active:scale-[0.98]'}`}
+                            >
+                                {isGenerating ? (
+                                    <div className="animate-spin w-5 h-5 border-2 border-white border-t-transparent rounded-full"></div>
+                                ) : (
+                                    <>
+                                        <Sparkles size={18} />
+                                        Generate Content
+                                    </>
+                                )}
+                            </button>
                         </div>
                     </div>
                 </div>

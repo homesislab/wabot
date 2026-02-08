@@ -434,6 +434,56 @@ const Users = () => {
                                 </div>
                             )}
 
+                            {/* AI Settings Section */}
+                            <div className="mt-8 pt-6 border-t border-gray-100">
+                                <div className="flex items-center justify-between mb-4">
+                                    <h4 className="text-sm font-bold text-gray-900 uppercase tracking-wider">AI Configuration</h4>
+                                    <label className="relative inline-flex items-center cursor-pointer">
+                                        <input
+                                            type="checkbox"
+                                            className="sr-only peer"
+                                            checked={settingsData.isAiEnabled}
+                                            onChange={e => setSettingsData({ ...settingsData, isAiEnabled: e.target.checked })}
+                                        />
+                                        <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-emerald-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-sisia-primary"></div>
+                                        <span className="ml-3 text-sm font-medium text-gray-700">{settingsData.isAiEnabled ? 'Enabled' : 'Disabled'}</span>
+                                    </label>
+                                </div>
+
+                                <div className={`space-y-4 transition-all duration-300 ${settingsData.isAiEnabled ? 'opacity-100 max-h-[500px]' : 'opacity-40 pointer-events-none max-h-0 overflow-hidden'}`}>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">AI Provider</label>
+                                        <select
+                                            className="w-full border p-2 rounded-lg outline-none focus:ring-2 focus:ring-sisia-primary"
+                                            value={settingsData.aiProvider}
+                                            onChange={e => setSettingsData({ ...settingsData, aiProvider: e.target.value })}
+                                        >
+                                            <option value="openai">OpenAI (GPT-4o mini)</option>
+                                            <option value="gemini">Google Gemini (1.5 Flash)</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">AI API Key</label>
+                                        <input
+                                            type="password"
+                                            className="w-full border p-2 rounded-lg outline-none focus:ring-2 focus:ring-sisia-primary"
+                                            value={settingsData.aiApiKey}
+                                            onChange={e => setSettingsData({ ...settingsData, aiApiKey: e.target.value })}
+                                            placeholder="Enter API Key"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">AI Briefing / System Instruction</label>
+                                        <textarea
+                                            className="w-full border p-2 rounded-lg outline-none focus:ring-2 focus:ring-sisia-primary min-h-[100px]"
+                                            value={settingsData.aiBriefing}
+                                            onChange={e => setSettingsData({ ...settingsData, aiBriefing: e.target.value })}
+                                            placeholder="Example: You are a helpful customer service assistant for Wabot..."
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+
                             <div className="flex justify-end gap-2 pt-4">
                                 <button type="button" onClick={() => setUserToConfig(null)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg">Cancel</button>
                                 <button type="submit" className="px-4 py-2 bg-sisia-primary text-white rounded-lg hover:bg-emerald-700">Save Settings</button>
