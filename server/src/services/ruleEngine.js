@@ -188,11 +188,19 @@ const executeAction = async (rule, sessionId, originalMessage, sock) => {
             const response = await aiService.generateResponse({
                 apiKey: user.aiApiKey,
                 provider: user.aiProvider || 'openai',
-                tools: tools
+                tools: tools,
+                mediaUrl: rule.responseMediaUrl
             }, rule.responseContent, userMessage);
 
             if (response) {
-                await sock.sendMessage(jid, { text: response });
+                if (rule.responseMediaUrl) {
+                    await sock.sendMessage(jid, {
+                        image: { url: rule.responseMediaUrl },
+                        caption: response
+                    });
+                } else {
+                    await sock.sendMessage(jid, { text: response });
+                }
                 await creditService.deductCredit(rule.userId);
                 logger.info(`Rule ${rule.id} AI response sent to ${jid}`);
             } else {

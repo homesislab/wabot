@@ -274,7 +274,7 @@ const Rules = () => {
                                 </div>
                             </div>
 
-                            {formData.responseMediaType === 'IMAGE' && (
+                            {(formData.responseMediaType === 'IMAGE' || formData.actionType === 'AI_REPLY') && (
                                 <div>
                                     <div className="flex gap-2">
                                         <input className="flex-1 border p-2 rounded-lg outline-none focus:ring-2 focus:ring-sisia-primary" placeholder="https://example.com/image.jpg" value={formData.responseMediaUrl} onChange={e => setFormData({ ...formData, responseMediaUrl: e.target.value })} required />

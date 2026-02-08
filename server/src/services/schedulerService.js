@@ -57,11 +57,19 @@ export const scheduleJob = (schedule) => {
                         const response = await aiService.generateResponse({
                             apiKey: user.aiApiKey,
                             provider: user.aiProvider || 'openai',
-                            tools: tools
+                            tools: tools,
+                            mediaUrl: schedule.mediaUrl
                         }, schedule.content, "Generate a scheduled message."); // System prompt is content, user message is dummy/context
 
                         if (response) {
-                            await sock.sendMessage(jid, { text: response });
+                            if (schedule.mediaUrl) {
+                                await sock.sendMessage(jid, {
+                                    image: { url: schedule.mediaUrl },
+                                    caption: response
+                                });
+                            } else {
+                                await sock.sendMessage(jid, { text: response });
+                            }
                         }
                     } else {
                         logger.warn(`Schedule ${schedule.id} skipped: Missing AI Key`);

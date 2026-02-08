@@ -353,7 +353,7 @@ const Scheduler = () => {
                         </div>
                     )}
 
-                    {(formData.actionType === 'IMAGE' || formData.messageType === 'IMAGE') && ( // Fallback for legacy
+                    {(formData.actionType === 'IMAGE' || formData.actionType === 'AI_REPLY' || formData.messageType === 'IMAGE') && ( // Fallback for legacy
                         <div className="mt-4 p-4 border border-dashed border-gray-300 rounded-xl bg-gray-50/50 hover:bg-gray-50 transition-colors">
                             <div className="flex gap-3">
                                 <input className="flex-1 border border-gray-200 p-2.5 rounded-lg bg-white" placeholder="Image URL" value={formData.mediaUrl} onChange={e => setFormData({ ...formData, mediaUrl: e.target.value })} />

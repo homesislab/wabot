@@ -238,7 +238,7 @@ const Broadcast = () => {
                         </div>
                     )}
 
-                    {(formData.actionType === 'IMAGE' || formData.messageType === 'IMAGE') && (
+                    {(formData.actionType === 'IMAGE' || formData.actionType === 'AI_REPLY' || formData.messageType === 'IMAGE') && (
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">Image Source</label>
                             <div className="flex gap-2">

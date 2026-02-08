@@ -11,7 +11,7 @@ import OpenAI from 'openai';
  * @param {string} userMessage - The user's input
  * @returns {Promise<string|null>} The generated response
  */
-export const generateResponse = async ({ apiKey, provider = 'openai', modelString, tools = [] }, systemInstruction, userMessage) => {
+export const generateResponse = async ({ apiKey, provider = 'openai', modelString, tools = [], mediaUrl }, systemInstruction, userMessage) => {
     if (!apiKey) {
         logger.warn('AI Service: No API Key provided');
         return "Error: AI API Key not configured.";
@@ -19,9 +19,9 @@ export const generateResponse = async ({ apiKey, provider = 'openai', modelStrin
 
     try {
         if (provider === 'gemini') {
-            return await generateGeminiResponse(apiKey, modelString || 'gemini-2.5-flash', tools, systemInstruction, userMessage);
+            return await generateGeminiResponse(apiKey, modelString || 'gemini-2.5-flash', tools, systemInstruction, userMessage, mediaUrl);
         } else {
-            return await generateOpenAIResponse(apiKey, modelString || 'gpt-3.5-turbo', tools, systemInstruction, userMessage);
+            return await generateOpenAIResponse(apiKey, modelString || 'gpt-3.5-turbo', tools, systemInstruction, userMessage, mediaUrl);
         }
     } catch (error) {
         logger.error(`AI Service Exception (${provider}): ${error.message}`);
@@ -30,7 +30,7 @@ export const generateResponse = async ({ apiKey, provider = 'openai', modelStrin
 };
 
 // --- OpenAI Implementation ---
-async function generateOpenAIResponse(apiKey, model, tools, systemInstruction, userMessage) {
+async function generateOpenAIResponse(apiKey, model, tools, systemInstruction, userMessage, mediaUrl) {
     const openai = new OpenAI({ apiKey });
 
     // Convert generic tools to OpenAI format
@@ -44,9 +44,18 @@ async function generateOpenAIResponse(apiKey, model, tools, systemInstruction, u
     }));
 
     const messages = [
-        { role: 'system', content: systemInstruction },
-        { role: 'user', content: userMessage }
+        { role: 'system', content: systemInstruction }
     ];
+
+    const userContent = [{ type: 'text', text: userMessage }];
+    if (mediaUrl) {
+        userContent.push({
+            type: 'image_url',
+            image_url: { url: mediaUrl }
+        });
+    }
+
+    messages.push({ role: 'user', content: userContent });
 
     let keepGoing = true;
     let finalResponse = null;
@@ -107,7 +116,7 @@ async function generateOpenAIResponse(apiKey, model, tools, systemInstruction, u
 }
 
 // --- Gemini Implementation ---
-async function generateGeminiResponse(apiKey, modelName, tools, systemInstruction, userMessage) {
+async function generateGeminiResponse(apiKey, modelName, tools, systemInstruction, userMessage, mediaUrl) {
     const genAI = new GoogleGenerativeAI(apiKey);
 
     // Map tools to Gemini format
@@ -131,7 +140,27 @@ async function generateGeminiResponse(apiKey, modelName, tools, systemInstructio
     });
 
     try {
-        let result = await chat.sendMessage(userMessage);
+        let promptParts = [userMessage];
+        if (mediaUrl) {
+            try {
+                const response = await fetch(mediaUrl);
+                const buffer = await response.arrayBuffer();
+                const base64Data = Buffer.from(buffer).toString('base64');
+                const contentType = response.headers.get('content-type') || 'image/jpeg';
+
+                promptParts.push({
+                    inlineData: {
+                        data: base64Data,
+                        mimeType: contentType
+                    }
+                });
+            } catch (fetchError) {
+                logger.error("Failed to fetch media for Gemini: " + fetchError.message);
+                // Continue with just text if image fails
+            }
+        }
+
+        let result = await chat.sendMessage(promptParts);
         let response = result.response;
         let functionCalls = response.functionCalls();
 

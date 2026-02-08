@@ -139,7 +139,8 @@ export const broadcastMessage = async (req, res) => {
                         const aiRes = await aiService.generateResponse({
                             apiKey: dbUser.aiApiKey,
                             provider: dbUser.aiProvider || 'openai',
-                            tools
+                            tools,
+                            mediaUrl: finalMediaUrl
                         }, content, "Generate a broadcast message.");
                         if (aiRes) finalMessageText = aiRes;
                         else throw new Error("AI Generation Failed");
