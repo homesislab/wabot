@@ -19,7 +19,7 @@ export const generateResponse = async ({ apiKey, provider = 'openai', modelStrin
 
     try {
         if (provider === 'gemini') {
-            return await generateGeminiResponse(apiKey, modelString || 'gemini-1.5-flash', tools, systemInstruction, userMessage);
+            return await generateGeminiResponse(apiKey, modelString || 'gemini-2.5-flash', tools, systemInstruction, userMessage);
         } else {
             return await generateOpenAIResponse(apiKey, modelString || 'gpt-3.5-turbo', tools, systemInstruction, userMessage);
         }

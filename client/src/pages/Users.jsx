@@ -459,7 +459,7 @@ const Users = () => {
                                             onChange={e => setSettingsData({ ...settingsData, aiProvider: e.target.value })}
                                         >
                                             <option value="openai">OpenAI (GPT-4o mini)</option>
-                                            <option value="gemini">Google Gemini (1.5 Flash)</option>
+                                            <option value="gemini">Google Gemini (2.5 Flash)</option>
                                         </select>
                                     </div>
                                     <div>
