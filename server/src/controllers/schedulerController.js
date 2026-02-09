@@ -9,8 +9,12 @@ export const getSchedules = async (req, res) => {
 
 export const createSchedule = async (req, res) => {
     try {
+        const data = { ...req.body, userId: req.user.id };
+        if (data.credentialId === '') data.credentialId = null;
+        if (data.credentialId) data.credentialId = parseInt(data.credentialId);
+
         const schedule = await prisma.schedule.create({
-            data: { ...req.body, userId: req.user.id }
+            data
         });
         scheduleJob(schedule);
         res.status(201).json(schedule);
@@ -26,7 +30,11 @@ export const updateSchedule = async (req, res) => {
         const check = await prisma.schedule.findUnique({ where: { id: parseInt(id) } });
         if (!check || check.userId !== req.user.id) return res.status(404).json({ error: 'Schedule not found' });
 
-        const schedule = await prisma.schedule.update({ where: { id: parseInt(id) }, data: req.body });
+        const data = { ...req.body };
+        if (data.credentialId === '') data.credentialId = null;
+        if (data.credentialId) data.credentialId = parseInt(data.credentialId);
+
+        const schedule = await prisma.schedule.update({ where: { id: parseInt(id) }, data });
         scheduleJob(schedule); // Updates the job
         res.json(schedule);
     } catch (error) {

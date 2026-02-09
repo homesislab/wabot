@@ -128,11 +128,14 @@ const Scheduler = () => {
 
     const handleSubmit = async (e) => {
         e.preventDefault();
+        const payload = { ...formData };
+        if (payload.credentialId === '') payload.credentialId = null;
+
         try {
             if (editingId) {
-                await api.put(`/schedules/${editingId}`, formData);
+                await api.put(`/schedules/${editingId}`, payload);
             } else {
-                await api.post('/schedules', formData);
+                await api.post('/schedules', payload);
             }
             handleCancelEdit();
             fetchSchedules();

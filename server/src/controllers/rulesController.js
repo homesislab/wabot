@@ -16,7 +16,8 @@ export const createRule = async (req, res) => {
         const {
             name, triggerType, triggerValue, actionType,
             apiUrl, apiMethod, apiPayload, responseContent,
-            responseMediaType, responseMediaUrl, sessionId
+            responseMediaType, responseMediaUrl, sessionId,
+            filterGroupId, credentialId
         } = req.body;
 
         const rule = await prisma.rule.create({
@@ -32,6 +33,8 @@ export const createRule = async (req, res) => {
                 responseMediaType: responseMediaType || 'TEXT',
                 responseMediaUrl: responseMediaUrl || null,
                 sessionId: sessionId || null,
+                filterGroupId: filterGroupId || null,
+                credentialId: credentialId ? parseInt(credentialId) : null,
                 userId: req.user.id
             }
         });
@@ -48,7 +51,8 @@ export const updateRule = async (req, res) => {
         const {
             name, triggerType, triggerValue, actionType,
             apiUrl, apiMethod, apiPayload, responseContent,
-            responseMediaType, responseMediaUrl, sessionId
+            responseMediaType, responseMediaUrl, sessionId,
+            filterGroupId, credentialId
         } = req.body;
 
         const rule = await prisma.rule.findUnique({ where: { id: parseInt(id) } });
@@ -67,7 +71,9 @@ export const updateRule = async (req, res) => {
                 responseContent: responseContent || null,
                 responseMediaType: responseMediaType || 'TEXT',
                 responseMediaUrl: responseMediaUrl || null,
-                sessionId: sessionId || null
+                sessionId: sessionId || null,
+                filterGroupId: filterGroupId || null,
+                credentialId: credentialId ? parseInt(credentialId) : null
             }
         });
         res.json(updatedRule);

@@ -74,14 +74,15 @@ const Rules = () => {
 
     const handleSubmit = async (e) => {
         e.preventDefault();
+        const payload = { ...formData };
+        if (payload.credentialId === '') payload.credentialId = null;
 
         try {
             if (editingRuleId) {
-                await api.put(`/rules/${editingRuleId}`, formData);
+                await api.put(`/rules/${editingRuleId}`, payload);
             } else {
-                await api.post('/rules', formData);
+                await api.post('/rules', payload);
             }
-
             handleCancelEdit(); // Resets form and editing state
             fetchRules();
         } catch (error) {
