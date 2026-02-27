@@ -18,8 +18,11 @@ import Broadcast from './pages/Broadcast';
 import LandingPage from './pages/LandingPage';
 import Register from './pages/Register';
 import Profile from './pages/Profile';
-import Documentation from './pages/Documentation';
 import Credentials from './pages/Credentials';
+import Games from './pages/Games';
+import Notes from './pages/Notes';
+import TelegramBots from './pages/TelegramBots';
+import Documentation from './pages/Documentation';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { Navigate } from 'react-router-dom';
 
@@ -56,6 +59,9 @@ function App() {
             <Route path="credentials" element={<Credentials />} />
             <Route path="broadcast" element={<Broadcast />} />
             <Route path="profile" element={<Profile />} />
+            <Route path="games" element={<Games />} />
+            <Route path="notes" element={<Notes />} />
+            <Route path="telegram-bots" element={<TelegramBots />} />
             <Route path="docs" element={<Documentation />} />
           </Route>
         </Routes>

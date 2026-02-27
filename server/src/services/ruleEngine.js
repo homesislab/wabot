@@ -4,20 +4,53 @@ import { jidNormalizedUser } from '@whiskeysockets/baileys';
 import * as creditService from './creditService.js';
 import * as aiService from './aiService.js';
 import { getToolsForUser } from './toolManager.js';
+import { fixJsonString } from '../utils/jsonUtils.js';
+import * as gameService from './gameService.js';
+import * as messageAdapter from './messageAdapter.js';
 
-export const processMessage = async (sessionId, message, sock) => {
+export const processMessage = async (normalizedMsg) => {
     try {
-        const text = message.message?.conversation || message.message?.extendedTextMessage?.text || message.message?.imageMessage?.caption || "";
-
+        const { platform, sessionId, participant, jid, text, client, rawMessage } = normalizedMsg;
         if (!text) return;
 
-        const session = await prisma.session.findUnique({ where: { id: sessionId } });
-        if (!session) return; // Should not happen if processing message
+        // 1. Check if user is actively playing a game
+        const isPlaying = await gameService.handleActiveGame(normalizedMsg);
+        if (isPlaying) {
+            logger.info(`Message intercepted by Game Engine for ${participant} in ${jid}`);
+            return true; // Stop processing rules
+        }
+
+        // 2. Check if text triggers a new game start
+        const isGameTriggered = await gameService.checkGameTrigger(normalizedMsg);
+        if (isGameTriggered) {
+            logger.info(`Game Triggered by ${jid}`);
+            return true; // Stop processing rules
+        }
+
+        let userId = null;
+        if (platform === 'whatsapp') {
+            const session = await prisma.session.findUnique({ where: { id: sessionId } });
+            if (!session) return;
+            userId = session.userId;
+        } else if (platform === 'telegram') {
+            const botId = parseInt(sessionId.replace('telegram_', ''), 10);
+            const tgBot = await prisma.telegramBot.findUnique({ where: { id: botId } });
+            if (!tgBot) return;
+            userId = tgBot.userId;
+        }
+
+        if (!userId) return;
+
+        // 3. Check for Notes commands (!simpan, !catatan, !hapus, !kumpulan)
+        const notesHandled = await handleNotesCommand(userId, normalizedMsg);
+        if (notesHandled) {
+            return true; // Stop processing rules
+        }
 
         const rules = await prisma.rule.findMany({
             where: {
                 isActive: true,
-                userId: session.userId,
+                userId: userId,
                 OR: [
                     { sessionId: sessionId },
                     { sessionId: null }
@@ -29,7 +62,6 @@ export const processMessage = async (sessionId, message, sock) => {
         for (const rule of rules) {
             // Check Filter Group ID
             if (rule.filterGroupId) {
-                const jid = message.key.remoteJid;
                 if (jid !== rule.filterGroupId) continue; // Skip if not the target group
             }
 
@@ -38,9 +70,13 @@ export const processMessage = async (sessionId, message, sock) => {
             if (rule.triggerType === 'KEYWORD') {
                 // FALLBACK: Handle case where user selected KEYWORD but typed "On Mention (Tag Bot)"
                 if (rule.triggerValue.toLowerCase() === 'on mention (tag bot)') {
-                    const mentions = message.message?.extendedTextMessage?.contextInfo?.mentionedJid || [];
-                    const botJid = jidNormalizedUser(sock.user.id);
-                    if (mentions.includes(botJid)) matched = true;
+                    if (platform === 'whatsapp') {
+                        const mentions = rawMessage?.message?.extendedTextMessage?.contextInfo?.mentionedJid || [];
+                        const botJid = client?.user?.id ? jidNormalizedUser(client.user.id) : null;
+                        if (botJid && mentions.includes(botJid)) matched = true;
+                    } else if (platform === 'telegram') {
+                        if (text.includes('@')) matched = true;
+                    }
                 } else {
                     if (text.toLowerCase().includes(rule.triggerValue.toLowerCase())) matched = true;
                 }
@@ -54,14 +90,18 @@ export const processMessage = async (sessionId, message, sock) => {
                     logger.error(`Invalid Regex for rule ${rule.id}: ${e.message}`);
                 }
             } else if (rule.triggerType === 'MENTION') {
-                const mentions = message.message?.extendedTextMessage?.contextInfo?.mentionedJid || [];
-                const botJid = jidNormalizedUser(sock.user.id);
-                if (mentions.includes(botJid)) matched = true;
+                if (platform === 'whatsapp') {
+                    const mentions = rawMessage?.message?.extendedTextMessage?.contextInfo?.mentionedJid || [];
+                    const botJid = client?.user?.id ? jidNormalizedUser(client.user.id) : null;
+                    if (botJid && mentions.includes(botJid)) matched = true;
+                } else if (platform === 'telegram') {
+                    if (text.includes('@')) matched = true;
+                }
             }
 
             if (matched) {
                 logger.info(`Rule ${rule.id} matched for session ${sessionId}`);
-                executeAction(rule, sessionId, message, sock);
+                executeAction(rule, normalizedMsg);
                 return true;
             }
         }
@@ -72,7 +112,8 @@ export const processMessage = async (sessionId, message, sock) => {
     }
 };
 
-const executeAction = async (rule, sessionId, originalMessage, sock) => {
+const executeAction = async (rule, normalizedMsg) => {
+    const { sessionId, jid, rawMessage, text, platform } = normalizedMsg;
     // Check credits first
     const hasCredits = await creditService.checkCredits(rule.userId);
     if (!hasCredits) {
@@ -83,13 +124,13 @@ const executeAction = async (rule, sessionId, originalMessage, sock) => {
     if (rule.actionType === 'API_CALL' && rule.apiUrl) {
         try {
             let url = rule.apiUrl;
-            const text = originalMessage.message?.conversation || originalMessage.message?.extendedTextMessage?.text || originalMessage.message?.imageMessage?.caption || "";
+            const messageText = text || '';
 
             // Handle Dynamic Parameters for REGEX
             if (rule.triggerType === 'REGEX') {
                 try {
                     const regex = new RegExp(rule.triggerValue, 'i');
-                    const matches = text.match(regex);
+                    const matches = messageText.match(regex);
                     if (matches) {
                         matches.forEach((match, index) => {
                             url = url.replace(new RegExp(`\\{${index}\\}`, 'g'), match);
@@ -100,10 +141,22 @@ const executeAction = async (rule, sessionId, originalMessage, sock) => {
                 }
             }
 
+            let apiPayloadObj = {};
+            try {
+                apiPayloadObj = JSON.parse(rule.apiPayload || "{}");
+            } catch (e) {
+                try {
+                    const fixed = fixJsonString(rule.apiPayload || "{}");
+                    apiPayloadObj = JSON.parse(fixed);
+                } catch (e2) {
+                    logger.warn(`Rule ${rule.id} invalid JSON payload: ${e.message}`);
+                }
+            }
+
             const payload = {
-                ...JSON.parse(rule.apiPayload || "{}"),
+                ...apiPayloadObj,
                 sessionId,
-                message: originalMessage,
+                message: rawMessage,
                 trigger: rule.triggerValue
             };
 
@@ -138,9 +191,7 @@ const executeAction = async (rule, sessionId, originalMessage, sock) => {
 
             // Optional: If the API returns a 'message' field, reply with it (Fonnte-like behavior)
             if (data && data.message) {
-                const jid = originalMessage.key.remoteJid;
-                await sock.sendMessage(jid, { text: typeof data.message === 'string' ? data.message : JSON.stringify(data.message) });
-                await creditService.deductCredit(rule.userId);
+                await messageAdapter.sendMessage(normalizedMsg, { text: typeof data.message === 'string' ? data.message : JSON.stringify(data.message) }, rule.userId);
             }
 
         } catch (error) {
@@ -148,18 +199,14 @@ const executeAction = async (rule, sessionId, originalMessage, sock) => {
         }
     } else if (rule.actionType === 'RESPONSE' && rule.responseContent) {
         try {
-            const jid = originalMessage.key.remoteJid;
-
             if (rule.responseMediaType === 'IMAGE' && rule.responseMediaUrl) {
-                await sock.sendMessage(jid, {
+                await messageAdapter.sendMessage(normalizedMsg, {
                     image: { url: rule.responseMediaUrl },
                     caption: rule.responseContent
-                });
+                }, rule.userId);
             } else {
-                await sock.sendMessage(jid, { text: rule.responseContent });
+                await messageAdapter.sendMessage(normalizedMsg, { text: rule.responseContent }, rule.userId);
             }
-
-            await creditService.deductCredit(rule.userId);
 
             logger.info(`Rule ${rule.id} auto-reply sent to ${jid}`);
         } catch (error) {
@@ -167,12 +214,10 @@ const executeAction = async (rule, sessionId, originalMessage, sock) => {
         }
     } else if (rule.actionType === 'AI_REPLY') {
         try {
-            const jid = originalMessage.key.remoteJid;
-
             // Fetch User's API Key & Provider
             const user = await prisma.user.findUnique({
                 where: { id: rule.userId },
-                select: { aiApiKey: true, aiProvider: true, isAiEnabled: true }
+                select: { aiApiKey: true, aiProvider: true, isAiEnabled: true, aiModel: true }
             });
 
             if (!user?.aiApiKey) {
@@ -183,25 +228,25 @@ const executeAction = async (rule, sessionId, originalMessage, sock) => {
             logger.info(`Generating AI response for rule ${rule.id} (Provider: ${user.aiProvider})`);
 
             const tools = await getToolsForUser(rule.userId);
-            const userMessage = originalMessage.message?.conversation || originalMessage.message?.extendedTextMessage?.text || "";
+            const userMessage = text || '';
 
             const response = await aiService.generateResponse({
                 apiKey: user.aiApiKey,
                 provider: user.aiProvider || 'openai',
+                modelString: user.aiModel,
                 tools: tools,
                 mediaUrl: rule.responseMediaUrl
             }, rule.responseContent, userMessage);
 
             if (response) {
                 if (rule.responseMediaUrl) {
-                    await sock.sendMessage(jid, {
+                    await messageAdapter.sendMessage(normalizedMsg, {
                         image: { url: rule.responseMediaUrl },
                         caption: response
-                    });
+                    }, rule.userId);
                 } else {
-                    await sock.sendMessage(jid, { text: response });
+                    await messageAdapter.sendMessage(normalizedMsg, { text: response }, rule.userId);
                 }
-                await creditService.deductCredit(rule.userId);
                 logger.info(`Rule ${rule.id} AI response sent to ${jid}`);
             } else {
                 logger.warn(`Rule ${rule.id} AI response generation failed`);
@@ -209,5 +254,113 @@ const executeAction = async (rule, sessionId, originalMessage, sock) => {
         } catch (error) {
             logger.error(`Rule ${rule.id} AI execution failed: ${error.message}`);
         }
+    }
+};
+
+const handleNotesCommand = async (userId, normalizedMsg) => {
+    try {
+        const { jid, text } = normalizedMsg;
+        if (!text.startsWith('!')) return false;
+
+        const parts = text.split(' ');
+        const command = parts[0].toLowerCase();
+        const args = parts.slice(1).join(' ').trim();
+
+        if (command === '!simpan') {
+            // Format: !simpan keyword | content
+            const splitIndex = args.indexOf('|');
+            if (splitIndex === -1) {
+                await messageAdapter.sendMessage(normalizedMsg, '❌ Format salah. Gunakan: !simpan keyword | isi catatan');
+                return true;
+            }
+
+            const keyword = args.substring(0, splitIndex).trim().toLowerCase();
+            const content = args.substring(splitIndex + 1).trim();
+
+            if (!keyword || !content) {
+                await messageAdapter.sendMessage(normalizedMsg, '❌ Keyword dan konten tidak boleh kosong.');
+                return true;
+            }
+
+            await prisma.note.upsert({
+                where: {
+                    userId_keyword: {
+                        userId,
+                        keyword
+                    }
+                },
+                update: { content },
+                create: { userId, keyword, content }
+            });
+
+            await messageAdapter.sendMessage(normalizedMsg, `✅ Catatan '${keyword}' berhasil disimpan.`);
+            return true;
+        }
+
+        if (command === '!catatan') {
+            const keyword = args.toLowerCase();
+            if (!keyword) {
+                await messageAdapter.sendMessage(normalizedMsg, '❌ Masukkan keyword. Contoh: !catatan jadwal');
+                return true;
+            }
+
+            const note = await prisma.note.findUnique({
+                where: {
+                    userId_keyword: { userId, keyword }
+                }
+            });
+
+            if (note) {
+                await messageAdapter.sendMessage(normalizedMsg, note.content);
+            } else {
+                await messageAdapter.sendMessage(normalizedMsg, `❌ Catatan '${keyword}' tidak ditemukan.`);
+            }
+            return true;
+        }
+
+        if (command === '!hapus') {
+            const keyword = args.toLowerCase();
+            if (!keyword) {
+                await messageAdapter.sendMessage(normalizedMsg, '❌ Masukkan keyword yang mau dihapus. Contoh: !hapus jadwal');
+                return true;
+            }
+
+            const note = await prisma.note.findUnique({
+                where: {
+                    userId_keyword: { userId, keyword }
+                }
+            });
+
+            if (note) {
+                await prisma.note.delete({
+                    where: { id: note.id }
+                });
+                await messageAdapter.sendMessage(normalizedMsg, `✅ Catatan '${keyword}' berhasil dihapus.`);
+            } else {
+                await messageAdapter.sendMessage(normalizedMsg, `❌ Catatan '${keyword}' tidak ditemukan.`);
+            }
+            return true;
+        }
+
+        if (command === '!kumpulan') {
+            const notes = await prisma.note.findMany({
+                where: { userId },
+                orderBy: { keyword: 'asc' }
+            });
+
+            if (notes.length === 0) {
+                await messageAdapter.sendMessage(normalizedMsg, '📂 Belum ada catatan yang tersimpan.');
+            } else {
+                const list = notes.map((n, i) => `${i + 1}. ${n.keyword}`).join('\n');
+                await messageAdapter.sendMessage(normalizedMsg, `📂 *Daftar Catatan:*\n\n${list}\n\nGunakan !catatan <nama_catatan> untuk melihat.`);
+            }
+            return true;
+        }
+
+        return false;
+    } catch (error) {
+        logger.error(`Error in handleNotesCommand: ${error.message}`);
+        await messageAdapter.sendMessage(normalizedMsg, '❌ Terjadi kesalahan saat memproses catatan.');
+        return true;
     }
 };

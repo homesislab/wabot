@@ -75,6 +75,20 @@ const Sessions = () => {
         }
     };
 
+    const handleReconnect = async (id) => {
+        try {
+            setQrCodes(prev => {
+                const newQrs = { ...prev };
+                delete newQrs[id];
+                return newQrs;
+            });
+            await api.post(`/sessions/${id}/reconnect`);
+        } catch (error) {
+            console.error(error);
+            alert("Failed to reconnect session");
+        }
+    };
+
     return (
         <div>
             {/* Warning Banner */}
@@ -173,7 +187,7 @@ const Sessions = () => {
                         <div className="px-5 py-3 bg-gray-50 border-t border-gray-100 flex justify-between items-center text-xs text-gray-500">
                             <span className="font-mono">{session.id.substring(0, 12)}...</span>
                             {session.status === 'DISCONNECTED' && (
-                                <button className="text-blue-600 hover:underline font-medium flex items-center gap-1">
+                                <button onClick={() => handleReconnect(session.id)} className="text-blue-600 hover:underline font-medium flex items-center gap-1">
                                     <RefreshCw size={12} /> Reconnect
                                 </button>
                             )}

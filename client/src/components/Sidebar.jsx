@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Smartphone, Users, MessageSquare, Calendar, Zap, Send, Database, Shield, LogOut, BookOpen, ChevronLeft, ChevronRight, Coins, Image as ImageIcon, ScrollText, Megaphone, Wrench, Key } from 'lucide-react';
+import { LayoutDashboard, Smartphone, Users, MessageSquare, Calendar, Zap, Send, Database, Shield, LogOut, BookOpen, ChevronLeft, ChevronRight, Coins, Image as ImageIcon, ScrollText, Megaphone, Wrench, Key, Gamepad2, FileText, Bot } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 const Sidebar = ({ isOpen, onClose }) => {
@@ -16,10 +16,13 @@ const Sidebar = ({ isOpen, onClose }) => {
         { path: '/app/rules', label: 'Auto Reply', icon: Zap },
         { path: '/app/ai-tools', label: 'AI Actions', icon: Wrench },
         { path: '/app/credentials', label: 'Credentials', icon: Key },
+        { path: '/app/telegram-bots', label: 'Telegram Bots', icon: Bot },
         { path: '/app/scheduler', label: 'Scheduler', icon: Calendar },
         { path: '/app/broadcast', label: 'Broadcast', icon: Megaphone },
         { path: '/app/groups', label: 'Groups', icon: Database },
         { path: '/app/gallery', label: 'Gallery', icon: ImageIcon },
+        { path: '/app/games', label: 'Game Builder', icon: Gamepad2 },
+        { path: '/app/notes', label: 'Notes', icon: FileText },
         { path: '/app/profile', label: 'My Profile', icon: Users },
         { path: '/app/send', label: 'Send Test', icon: Send },
         { path: '/app/docs', label: 'Documentation', icon: BookOpen },

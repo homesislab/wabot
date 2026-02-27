@@ -1,10 +1,11 @@
-import makeWASocket, { useMultiFileAuthState, DisconnectReason, Browsers } from '@whiskeysockets/baileys';
+import makeWASocket, { useMultiFileAuthState, DisconnectReason, Browsers, fetchLatestBaileysVersion } from '@whiskeysockets/baileys';
 import { prisma } from '../prisma.js';
 import { logger } from '../config/logger.js';
 import fs from 'fs';
 import path from 'path';
 import QRCode from 'qrcode';
 import * as ruleEngine from './ruleEngine.js';
+import * as messageAdapter from './messageAdapter.js';
 import * as aiService from './aiService.js';
 
 const sessions = new Map();
@@ -22,11 +23,14 @@ export const startSession = async (sessionId) => {
     }
 
     const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
+    const { version, isLatest } = await fetchLatestBaileysVersion();
+    logger.info(`Using WA version v${version.join('.')}, isLatest: ${isLatest}`);
 
     const sock = makeWASocket({
         auth: state,
+        version,
         printQRInTerminal: false,
-        browser: Browsers.macOS('Desktop'),
+        browser: Browsers.ubuntu('Chrome'),
         syncFullHistory: false
     });
 
@@ -52,7 +56,12 @@ export const startSession = async (sessionId) => {
 
         if (connection === 'close') {
             const statusCode = (lastDisconnect?.error)?.output?.statusCode;
-            const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+            const isLoggedOut = Number(statusCode) === DisconnectReason.loggedOut;
+            const isConflict = Number(statusCode) === 405; // 405 means Conflict/Stream Errored
+
+            // Do not auto-reconnect if logged out or if there is a conflict.
+            const shouldReconnect = !isLoggedOut && !isConflict;
+
             logger.error(`Session ${sessionId} closed. StatusCode: ${statusCode}, Error: ${lastDisconnect?.error?.message}. Reconnecting: ${shouldReconnect}`);
 
             // Always remove the closed session from memory
@@ -60,12 +69,16 @@ export const startSession = async (sessionId) => {
             activeQRs.delete(sessionId);
 
             if (shouldReconnect) {
-                startSession(sessionId);
+                setTimeout(() => {
+                    logger.info(`Attempting to reconnect session ${sessionId}...`);
+                    startSession(sessionId);
+                }, 5000); // 5 sec delay
             } else {
                 await prisma.session.update({
                     where: { id: sessionId },
                     data: { status: 'DISCONNECTED' }
                 });
+                global.io.emit('session-status', { sessionId, status: 'DISCONNECTED' });
             }
         } else if (connection === 'open') {
             logger.info(`Session ${sessionId} opened successfully`);
@@ -81,7 +94,7 @@ export const startSession = async (sessionId) => {
 
 
     sock.ev.on('messages.upsert', async (m) => {
-        if (m.type === 'notify' || m.type === 'append') {
+        if (m.type === 'notify') {
             for (const msg of m.messages) {
                 try {
                     const isFromMe = msg.key.fromMe;
@@ -107,7 +120,20 @@ export const startSession = async (sessionId) => {
 
                     // Handle incoming messages for Rules
                     if (!isFromMe) {
-                        await ruleEngine.processMessage(sessionId, msg, sock);
+                        const participant = msg.key.participant || msg.key.remoteJid;
+                        const jid = msg.key.remoteJid;
+
+                        const normalizedMsg = messageAdapter.normalizeMessage(
+                            'whatsapp',
+                            sessionId,
+                            participant,
+                            jid,
+                            content,
+                            msg,
+                            sock
+                        );
+
+                        await ruleEngine.processMessage(normalizedMsg);
                     }
 
                     // Auto-Read Message
@@ -142,7 +168,22 @@ export const deleteSession = async (sessionId) => {
 
     const sessionDir = path.join('sessions', sessionId);
     if (fs.existsSync(sessionDir)) {
-        fs.rmSync(sessionDir, { recursive: true, force: true });
+        if (fs.statSync(sessionDir).isDirectory()) {
+            fs.rmSync(sessionDir, { recursive: true, force: true });
+        } else {
+            fs.rmSync(sessionDir, { force: true });
+        }
+    }
+
+    // Also clean up any flat files that Baileys might have created in the sessions directory
+    const baseSessionsPath = 'sessions';
+    if (fs.existsSync(baseSessionsPath)) {
+        const files = fs.readdirSync(baseSessionsPath);
+        for (const file of files) {
+            if (file.startsWith(`session-${sessionId}`) || file.startsWith(`app-state-sync-version-${sessionId}`)) {
+                fs.rmSync(path.join(baseSessionsPath, file), { force: true });
+            }
+        }
     }
 
     await prisma.session.update({

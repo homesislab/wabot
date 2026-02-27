@@ -101,7 +101,7 @@ export const getMe = async (req, res) => {
     try {
         const user = await prisma.user.findUnique({
             where: { id: req.user.id },
-            select: { id: true, username: true, role: true, credits: true, isActive: true, planType: true, messageCost: true, planExpiresAt: true, aiApiKey: true, aiProvider: true, aiBriefing: true, isAiEnabled: true, email: true, phone: true }
+            select: { id: true, username: true, role: true, credits: true, isActive: true, planType: true, messageCost: true, planExpiresAt: true, aiApiKey: true, aiProvider: true, aiModel: true, aiBriefing: true, isAiEnabled: true, email: true, phone: true }
         });
         if (!user) return res.sendStatus(404);
         res.json(user);
@@ -111,7 +111,7 @@ export const getMe = async (req, res) => {
 };
 
 export const updateProfile = async (req, res) => {
-    const { email, phone, aiProvider, aiApiKey, isAiEnabled } = req.body;
+    const { email, phone, aiProvider, aiModel, aiApiKey, isAiEnabled } = req.body;
     try {
         const user = await prisma.user.update({
             where: { id: req.user.id },
@@ -119,6 +119,7 @@ export const updateProfile = async (req, res) => {
                 email,
                 phone,
                 aiProvider,
+                aiModel,
                 aiApiKey,
                 isAiEnabled
             }
@@ -129,6 +130,7 @@ export const updateProfile = async (req, res) => {
             email: user.email,
             phone: user.phone,
             aiProvider: user.aiProvider,
+            aiModel: user.aiModel,
             aiApiKey: user.aiApiKey,
             isAiEnabled: user.isAiEnabled
         });

@@ -3,15 +3,31 @@ import * as sessionManager from '../services/sessionManager.js';
 import { logger } from '../config/logger.js';
 
 export const getAllSessions = async (req, res) => {
+    // 1. Fetch WhatsApp Sessions
     const sessions = await prisma.session.findMany({ where: { userId: req.user.id } });
-
-    // Attach current QR if exists
     const sessionsWithQr = sessions.map(session => ({
         ...session,
         qr: sessionManager.getQR(session.id)
     }));
 
-    res.json(sessionsWithQr);
+    // 2. Fetch Active Telegram Bots
+    const telegramBots = await prisma.telegramBot.findMany({
+        where: { userId: req.user.id, isActive: true }
+    });
+
+    // Map bots to match Session response format
+    const botSessions = telegramBots.map(bot => ({
+        id: `telegram_${bot.id}`,
+        name: `${bot.name} (Telegram)`,
+        status: 'CONNECTED', // Bots are always considered connected if active
+        qr: null,
+        userId: bot.userId,
+        createdAt: bot.createdAt,
+        updatedAt: bot.updatedAt
+    }));
+
+    // Combine and send
+    res.json([...sessionsWithQr, ...botSessions]);
 };
 
 export const createSession = async (req, res) => {
@@ -91,4 +107,22 @@ export const getSession = async (req, res) => {
     const session = await prisma.session.findUnique({ where: { id } });
     if (!session || session.userId !== req.user.id) return res.status(404).json({ error: 'Session not found' });
     res.json(session);
+};
+
+export const reconnectSession = async (req, res) => {
+    const { id } = req.params;
+    try {
+        const session = await prisma.session.findUnique({ where: { id } });
+        if (!session || session.userId !== req.user.id) {
+            return res.status(404).json({ error: 'Session not found' });
+        }
+
+        await sessionManager.deleteSession(id); // Clears the dirty session state and folder
+        await sessionManager.startSession(id);  // Re-initializes, which will emit new QR
+
+        res.json({ message: 'Session reconnecting' });
+    } catch (error) {
+        logger.error(error);
+        res.status(500).json({ error: 'Failed to reconnect session' });
+    }
 };

@@ -1,9 +1,10 @@
-import { getSession } from '../services/sessionManager.js';
+import * as sessionManager from '../services/sessionManager.js';
 import * as creditService from '../services/creditService.js';
 import { logger } from '../config/logger.js';
 import { prisma } from '../prisma.js';
 import * as aiService from '../services/aiService.js';
 import { getToolsForUser } from '../services/toolManager.js';
+import { sendOutgoingMessageBySession } from '../services/messageAdapter.js';
 
 export const sendMessage = async (req, res) => {
     const { sessionId, to, type, content, mediaUrl } = req.body;
@@ -28,25 +29,35 @@ export const sendMessage = async (req, res) => {
     }
 
     try {
-        const session = await prisma.session.findUnique({ where: { id: sessionId } });
-        if (!session || session.userId !== req.user.id) {
+        let sessionExists = false;
+        let isTelegram = sessionId.startsWith('telegram_');
+
+        if (isTelegram) {
+            const botId = parseInt(sessionId.replace('telegram_', ''), 10);
+            const bot = await prisma.telegramBot.findUnique({ where: { id: botId } });
+            if (bot && bot.userId === req.user.id) sessionExists = true;
+        } else {
+            const session = await prisma.session.findUnique({ where: { id: sessionId } });
+            if (session && session.userId === req.user.id) sessionExists = true;
+        }
+
+        if (!sessionExists) {
             return res.status(403).json({ error: 'Unauthorized: Session not found or does not belong to you' });
         }
 
-        const sock = getSession(sessionId);
-        if (!sock) return res.status(404).json({ error: 'Session not connected' });
+        const jid = isTelegram ? to : (to.includes('@') ? to : `${to}@s.whatsapp.net`);
 
-        const jid = to.includes('@') ? to : `${to}@s.whatsapp.net`;
-
+        let payload;
         if (type === 'TEXT') {
-            await sock.sendMessage(jid, { text: content });
+            payload = { text: content };
         } else if (type === 'IMAGE') {
-            await sock.sendMessage(jid, {
-                image: { url: mediaUrl },
-                caption: content
-            });
-
+            payload = { image: { url: mediaUrl }, caption: content };
         }
+
+        const sent = await sendOutgoingMessageBySession(sessionId, jid, payload, null);
+        if (!sent) return res.status(404).json({ error: 'Session not connected' });
+
+        await creditService.deductCredit(userId);
 
         res.json({ success: true });
     } catch (error) {
@@ -60,13 +71,21 @@ export const broadcastMessage = async (req, res) => {
     const userId = req.user.id;
 
     try {
-        const session = await prisma.session.findUnique({ where: { id: sessionId } });
-        if (!session || session.userId !== userId) {
-            return res.status(403).json({ error: 'Unauthorized: Session not found or does not belong to you' });
+        let sessionExists = false;
+        let isTelegram = sessionId.startsWith('telegram_');
+
+        if (isTelegram) {
+            const botId = parseInt(sessionId.replace('telegram_', ''), 10);
+            const bot = await prisma.telegramBot.findUnique({ where: { id: botId } });
+            if (bot && bot.userId === req.user.id) sessionExists = true;
+        } else {
+            const session = await prisma.session.findUnique({ where: { id: sessionId } });
+            if (session && session.userId === req.user.id) sessionExists = true;
         }
 
-        const sock = getSession(sessionId);
-        if (!sock) return res.status(404).json({ error: 'Session not connected' });
+        if (!sessionExists) {
+            return res.status(403).json({ error: 'Unauthorized: Session not found or does not belong to you' });
+        }
 
         // Fetch user to check plan type and expiration
         const user = await prisma.user.findUnique({ where: { id: userId } });
@@ -139,6 +158,7 @@ export const broadcastMessage = async (req, res) => {
                         const aiRes = await aiService.generateResponse({
                             apiKey: dbUser.aiApiKey,
                             provider: dbUser.aiProvider || 'openai',
+                            modelString: dbUser.aiModel,
                             tools,
                             mediaUrl: finalMediaUrl
                         }, content, "Generate a broadcast message.");
@@ -203,17 +223,18 @@ export const broadcastMessage = async (req, res) => {
                 }
 
                 try {
-                    const jid = contact.phone.includes('@') ? contact.phone : `${contact.phone}@s.whatsapp.net`;
+                    const jid = isTelegram ? contact.phone : (contact.phone.includes('@') ? contact.phone : `${contact.phone}@s.whatsapp.net`);
 
+                    let payload;
                     if (type === 'IMAGE' || (type !== 'TEXT' && finalMediaUrl)) {
-                        await sock.sendMessage(jid, {
-                            image: { url: finalMediaUrl },
-                            caption: finalMessageText
-                        });
+                        payload = { image: { url: finalMediaUrl }, caption: finalMessageText };
                     } else {
                         // TEXT, AI_REPLY (result), API_CALL (result)
-                        await sock.sendMessage(jid, { text: finalMessageText });
+                        payload = { text: finalMessageText };
                     }
+
+                    const sent = await sendOutgoingMessageBySession(sessionId, jid, payload, null);
+                    if (!sent) throw new Error("Session not connected");
 
                     await creditService.deductCredit(userId);
                     sentCount++;
@@ -286,8 +307,21 @@ export const retryBroadcast = async (req, res) => {
             return res.status(400).json({ error: 'No failed messages to retry' });
         }
 
-        const sock = getSession(broadcast.sessionId);
-        if (!sock) return res.status(404).json({ error: 'Session not connected' });
+        let sessionExists = false;
+        let isTelegram = broadcast.sessionId.startsWith('telegram_');
+
+        if (isTelegram) {
+            const botId = parseInt(broadcast.sessionId.replace('telegram_', ''), 10);
+            const bot = await prisma.telegramBot.findUnique({ where: { id: botId } });
+            if (bot && bot.userId === req.user.id) sessionExists = true;
+        } else {
+            const session = await prisma.session.findUnique({ where: { id: broadcast.sessionId } });
+            if (session && session.userId === req.user.id) sessionExists = true;
+        }
+
+        if (!sessionExists) {
+            return res.status(404).json({ error: 'Session not found or not connected' });
+        }
 
         res.json({ message: `Retrying ${broadcast.logs.length} failed messages` });
 
@@ -298,7 +332,8 @@ export const retryBroadcast = async (req, res) => {
 
             for (const log of broadcast.logs) {
                 try {
-                    const jid = log.contactPhone.includes('@') ? log.contactPhone : `${log.contactPhone}@s.whatsapp.net`;
+                    const isTelegram = broadcast.sessionId.startsWith('telegram_');
+                    const jid = isTelegram ? log.contactPhone : (log.contactPhone.includes('@') ? log.contactPhone : `${log.contactPhone}@s.whatsapp.net`);
 
                     // Re-resolve content for Retry? Or use stored?
                     // Original implementation reused 'broadcast.content'.
@@ -320,14 +355,15 @@ export const retryBroadcast = async (req, res) => {
                         // Let's re-run for now.
                     }
 
-                    if (broadcast.messageType === 'TEXT') {
-                        await sock.sendMessage(jid, { text: broadcast.content });
-                    } else if (broadcast.messageType === 'IMAGE') {
-                        await sock.sendMessage(jid, {
-                            image: { url: broadcast.mediaUrl },
-                            caption: broadcast.content
-                        });
+                    let payload;
+                    if (broadcast.messageType === 'IMAGE') {
+                        payload = { image: { url: broadcast.mediaUrl }, caption: broadcast.content };
+                    } else {
+                        payload = { text: broadcast.content };
                     }
+
+                    const sent = await sendOutgoingMessageBySession(broadcast.sessionId, jid, payload, null);
+                    if (!sent) throw new Error("Session not connected");
 
                     await creditService.deductCredit(userId);
                     retriedSent++;

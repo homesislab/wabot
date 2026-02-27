@@ -14,7 +14,7 @@ const Profile = () => {
     const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
 
     // Edit Profile State
-    const [editForm, setEditForm] = useState({ email: '', phone: '', aiProvider: 'openai', aiApiKey: '', isAiEnabled: false });
+    const [editForm, setEditForm] = useState({ email: '', phone: '', aiProvider: 'openai', aiModel: '', aiApiKey: '', isAiEnabled: false });
 
     // Change Password State
     const [passwordForm, setPasswordForm] = useState({ currentPassword: '', newPassword: '', confirmNewPassword: '' });
@@ -30,6 +30,7 @@ const Profile = () => {
                 email: res.data.email || '',
                 phone: res.data.phone || '',
                 aiProvider: res.data.aiProvider || 'openai',
+                aiModel: res.data.aiModel || '',
                 aiApiKey: res.data.aiApiKey || '',
                 isAiEnabled: res.data.isAiEnabled || false
             });
@@ -133,6 +134,7 @@ const Profile = () => {
                                 email: profile?.email || '',
                                 phone: profile?.phone || '',
                                 aiProvider: profile?.aiProvider || 'openai',
+                                aiModel: profile?.aiModel || '',
                                 aiApiKey: profile?.aiApiKey || '',
                                 isAiEnabled: profile?.isAiEnabled || false
                             });
@@ -258,9 +260,12 @@ const Profile = () => {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div>
                         <p className="text-sm text-gray-500 font-medium mb-1">AI Provider</p>
-                        <div className="flex items-center gap-2">
-                            <span className={`px-2 py-1 rounded-md text-sm font-medium ${profile?.aiProvider === 'gemini' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}`}>
+                        <div className="flex flex-col gap-1">
+                            <span className={`w-fit px-2 py-1 rounded-md text-sm font-medium ${profile?.aiProvider === 'gemini' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}`}>
                                 {profile?.aiProvider === 'gemini' ? 'Google Gemini' : 'OpenAI'}
+                            </span>
+                            <span className="text-sm text-gray-600 font-medium">
+                                Model: {profile?.aiModel || 'Default'}
                             </span>
                         </div>
                     </div>
@@ -315,16 +320,46 @@ const Profile = () => {
                                     </label>
                                 </h4>
                                 <div className={`space-y-4 ${!editForm.isAiEnabled ? 'opacity-50 pointer-events-none' : ''}`}>
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">AI Provider</label>
-                                        <select
-                                            value={editForm.aiProvider}
-                                            onChange={e => setEditForm({ ...editForm, aiProvider: e.target.value })}
-                                            className="w-full px-4 py-2 border rounded-xl outline-none focus:ring-2 focus:ring-sisia-primary/20 focus:border-sisia-primary bg-white"
-                                        >
-                                            <option value="openai">OpenAI (GPT)</option>
-                                            <option value="gemini">Google Gemini</option>
-                                        </select>
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">Provider</label>
+                                            <select
+                                                value={editForm.aiProvider}
+                                                onChange={e => setEditForm({ ...editForm, aiProvider: e.target.value })}
+                                                className="w-full px-4 py-2 border rounded-xl outline-none focus:ring-2 focus:ring-sisia-primary/20 focus:border-sisia-primary bg-white"
+                                            >
+                                                <option value="openai">OpenAI (GPT)</option>
+                                                <option value="gemini">Google Gemini</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">Model Version</label>
+                                            <input
+                                                type="text"
+                                                value={editForm.aiModel}
+                                                onChange={e => setEditForm({ ...editForm, aiModel: e.target.value })}
+                                                placeholder={editForm.aiProvider === 'gemini' ? "e.g. gemini-1.5-flash" : "e.g. gpt-4o-mini"}
+                                                list="ai-models"
+                                                className="w-full px-4 py-2 border rounded-xl outline-none focus:ring-2 focus:ring-sisia-primary/20 focus:border-sisia-primary bg-white"
+                                            />
+                                            <datalist id="ai-models">
+                                                {editForm.aiProvider === 'gemini' ? (
+                                                    <>
+                                                        <option value="gemini-1.5-flash" />
+                                                        <option value="gemini-1.5-pro" />
+                                                        <option value="gemini-2.0-flash" />
+                                                        <option value="gemini-2.5-flash" />
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <option value="gpt-3.5-turbo" />
+                                                        <option value="gpt-4" />
+                                                        <option value="gpt-4o" />
+                                                        <option value="gpt-4o-mini" />
+                                                    </>
+                                                )}
+                                            </datalist>
+                                        </div>
                                     </div>
                                     <div>
                                         <label className="block text-sm font-medium text-gray-700 mb-1">API Key</label>

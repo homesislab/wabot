@@ -35,6 +35,9 @@ import userRoutes from './routes/userRoutes.js';
 import logRoutes from './routes/logRoutes.js';
 import aiRoutes from './routes/aiRoutes.js';
 import credentialRoutes from './routes/credentialRoutes.js';
+import gameRoutes from './routes/gameRoutes.js';
+import noteRoutes from './routes/noteRoutes.js';
+import telegramBotRoutes from './routes/telegramBotRoutes.js';
 
 app.use('/api/auth', authRoutes);
 
@@ -49,6 +52,9 @@ app.use('/api/users', userRoutes); // userRoutes already has auth middleware ins
 app.use('/api/logs', authenticateToken, logRoutes);
 app.use('/api/ai', authenticateToken, aiRoutes);
 app.use('/api/credentials', authenticateToken, credentialRoutes);
+app.use('/api/games', authenticateToken, gameRoutes);
+app.use('/api/notes', authenticateToken, noteRoutes);
+app.use('/api/telegram-bots', authenticateToken, telegramBotRoutes);
 
 
 import uploadRoutes from './routes/uploadRoutes.js';

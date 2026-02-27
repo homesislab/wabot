@@ -112,6 +112,8 @@ router.post('/', sessionController.createSession);
 router.put('/:id', sessionController.updateSession);
 router.get('/:id', sessionController.getSession);
 router.delete('/:id', sessionController.deleteSession);
+router.post('/:id/reconnect', sessionController.reconnectSession);
+
 /**
  * @swagger
  * /api/sessions/{id}/groups:

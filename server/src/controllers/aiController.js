@@ -123,6 +123,7 @@ export const testChat = async (req, res) => {
         const response = await aiService.generateResponse({
             apiKey: user.aiApiKey,
             provider: user.aiProvider || 'openai',
+            modelString: user.aiModel,
             tools
         }, systemInstruction || "You are a helpful assistant.", message);
 

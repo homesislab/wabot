@@ -31,9 +31,11 @@ global.io = io;
 
 import { initScheduler } from './src/services/schedulerService.js';
 import { initSessions } from './src/services/sessionManager.js';
+import { initializeBots } from './src/services/telegramService.js';
 
 httpServer.listen(port, async () => {
     logger.info(`Server running on port ${port}`);
     await initSessions();
     await initScheduler();
+    await initializeBots();
 });

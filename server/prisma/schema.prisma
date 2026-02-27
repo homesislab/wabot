@@ -11,7 +11,7 @@ model Session {
   id        String   @id
   name      String
   status    String   @default("DISCONNECTED")
-  config    String?
+  config    String?  @db.Text
   userId    Int      @default(1)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -19,48 +19,48 @@ model Session {
 }
 
 model Rule {
-  id                Int      @id @default(autoincrement())
+  id                Int           @id @default(autoincrement())
   name              String
   triggerType       String
   triggerValue      String
   actionType        String
   apiUrl            String?
-  apiMethod         String?  @default("POST")
-  apiPayload        String?
-  responseContent   String?
-  responseMediaType String?  @default("TEXT")
+  apiMethod         String?       @default("POST")
+  apiPayload        String?       @db.Text
+  responseContent   String?       @db.Text
+  responseMediaType String?       @default("TEXT")
   responseMediaUrl  String?
-  isActive          Boolean  @default(true)
-  sessionId         String?  // Optional, if null it applies to all sessions
-  filterGroupId     String?  // Optional: Specific Group JID
+  isActive          Boolean       @default(true)
+  sessionId         String? // Optional, if null it applies to all sessions
+  filterGroupId     String? // Optional: Specific Group JID
   credentialId      Int?
   credential        AiCredential? @relation(fields: [credentialId], references: [id])
-  userId            Int      @default(1)
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-  user              User     @relation(fields: [userId], references: [id])
+  userId            Int           @default(1)
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  user              User          @relation(fields: [userId], references: [id])
 }
 
 model Schedule {
-  id             Int       @id @default(autoincrement())
+  id             Int           @id @default(autoincrement())
   sessionId      String
   recipient      String
   messageType    String
-  content        String
+  content        String        @db.Text
   mediaUrl       String?
-  actionType     String    @default("TEXT") // TEXT, IMAGE, AI_REPLY, API_CALL
+  actionType     String        @default("TEXT") // TEXT, IMAGE, AI_REPLY, API_CALL
   apiUrl         String?
-  apiMethod      String?   @default("GET")
-  apiPayload     String?
+  apiMethod      String?       @default("GET")
+  apiPayload     String?       @db.Text
   credentialId   Int?
   credential     AiCredential? @relation(fields: [credentialId], references: [id])
   cronExpression String
   lastRun        DateTime?
-  isActive       Boolean   @default(true)
-  userId         Int       @default(1)
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
-  user           User      @relation(fields: [userId], references: [id])
+  isActive       Boolean       @default(true)
+  userId         Int           @default(1)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  user           User          @relation(fields: [userId], references: [id])
 }
 
 model MessageLog {
@@ -69,7 +69,7 @@ model MessageLog {
   direction String
   from      String
   to        String
-  content   String
+  content   String   @db.Text
   status    String
   createdAt DateTime @default(now())
 }
@@ -86,22 +86,23 @@ model Contact {
 }
 
 model User {
-  id            Int        @id @default(autoincrement())
-  username      String     @unique
+  id            Int            @id @default(autoincrement())
+  username      String         @unique
   email         String?
   phone         String?
   password      String
-  role          String     @default("USER")
-  credits       Int        @default(0)
-  planType      String     @default("PAY_AS_YOU_GO")
+  role          String         @default("USER")
+  credits       Int            @default(0)
+  planType      String         @default("PAY_AS_YOU_GO")
   planExpiresAt DateTime?
-  messageCost   Int        @default(1)
+  messageCost   Int            @default(1)
   aiApiKey      String?
-  aiProvider    String     @default("openai") // openai, gemini
-  aiBriefing    String?
-  isAiEnabled   Boolean    @default(false)
-  isActive      Boolean    @default(true)
-  createdAt     DateTime   @default(now())
+  aiProvider    String         @default("openai") // openai, gemini
+  aiModel       String? // e.g. gemini-1.5-flash, gpt-4
+  aiBriefing    String?        @db.Text
+  isAiEnabled   Boolean        @default(false)
+  isActive      Boolean        @default(true)
+  createdAt     DateTime       @default(now())
   contacts      Contact[]
   rules         Rule[]
   schedules     Schedule[]
@@ -109,93 +110,151 @@ model User {
   broadcasts    Broadcast[]
   aiTools       AiTool[]
   credentials   AiCredential[]
+  games         Game[]
+  notes         Note[]
+  telegramBots  TelegramBot[]
+}
+
+model TelegramBot {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  name      String
+  token     String   @unique
+  username  String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
 }
 
 model Broadcast {
-  id        Int            @id @default(autoincrement())
-  sessionId String
-  name      String?        // e.g. "Campaign #1"
-  tag       String
-  messageType String
-  content   String
-  mediaUrl  String?
-  actionType String          @default("TEXT") // TEXT, IMAGE, AI_REPLY, API_CALL
-  apiUrl     String?
-  apiMethod  String?         @default("GET")
-  apiPayload String?
+  id           Int            @id @default(autoincrement())
+  sessionId    String
+  name         String? // e.g. "Campaign #1"
+  tag          String
+  messageType  String
+  content      String         @db.Text
+  mediaUrl     String?
+  actionType   String         @default("TEXT") // TEXT, IMAGE, AI_REPLY, API_CALL
+  apiUrl       String?
+  apiMethod    String?        @default("GET")
+  apiPayload   String?        @db.Text
   credentialId Int?
-  credential AiCredential?   @relation(fields: [credentialId], references: [id])
-  total     Int            @default(0)
-  sent      Int            @default(0)
-  failed    Int            @default(0)
-  status    String         @default("PROCESSING") // PROCESSING, COMPLETED
-  userId    Int
-  user      User           @relation(fields: [userId], references: [id])
-  cratedAt  DateTime       @default(now())
-  logs      BroadcastLog[]
+  credential   AiCredential?  @relation(fields: [credentialId], references: [id])
+  total        Int            @default(0)
+  sent         Int            @default(0)
+  failed       Int            @default(0)
+  status       String         @default("PROCESSING") // PROCESSING, COMPLETED
+  userId       Int
+  user         User           @relation(fields: [userId], references: [id])
+  cratedAt     DateTime       @default(now())
+  logs         BroadcastLog[]
 }
 
 model BroadcastLog {
-  id          Int       @id @default(autoincrement())
-  broadcastId Int
-  contactName String?
+  id           Int       @id @default(autoincrement())
+  broadcastId  Int
+  contactName  String?
   contactPhone String
-  status      String    // PENDING, SUCCESS, FAILED
+  status       String // PENDING, SUCCESS, FAILED
   errorMessage String?
-  broadcast   Broadcast @relation(fields: [broadcastId], references: [id])
-  createdAt   DateTime  @default(now())
+  broadcast    Broadcast @relation(fields: [broadcastId], references: [id])
+  createdAt    DateTime  @default(now())
 }
 
 model AiTool {
-  id          Int      @id @default(autoincrement())
-  name        String   @unique
-  description String
-  method      String   @default("GET")
-  baseUrl     String
-  endpoint    String
-  parameters  String   // Stored as JSON string
-  headers     String?  // Stored as JSON string
-  body        String?  // Stored as JSON string
-  authType    String   @default("NONE") // NONE, API_KEY, BEARER
-  authRefreshUrl String? // URL to fetch new token (POST)
-  authRefreshPayload String? // JSON body for refresh (client_id, secret, etc)
-  authTokenPath String? // JSON path to find token in response (e.g. "access_token" or "data.token")
-  
+  id                 Int     @id @default(autoincrement())
+  name               String  @unique
+  description        String
+  method             String  @default("GET")
+  baseUrl            String
+  endpoint           String
+  parameters         String  @db.Text // Stored as JSON string
+  headers            String? @db.Text // Stored as JSON string
+  body               String? @db.Text // Stored as JSON string
+  authType           String  @default("NONE") // NONE, API_KEY, BEARER
+  authRefreshUrl     String? // URL to fetch new token (POST)
+  authRefreshPayload String? @db.Text // JSON body for refresh (client_id, secret, etc)
+  authTokenPath      String? // JSON path to find token in response (e.g. "access_token" or "data.token")
+
   credentialId Int?
   credential   AiCredential? @relation(fields: [credentialId], references: [id])
 
-  isEnabled   Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  user        User     @relation(fields: [userId], references: [id])
-  userId      Int      @default(1)
+  isEnabled Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id])
+  userId    Int      @default(1)
 }
 
 model AiCredential {
-  id          Int      @id @default(autoincrement())
-  name        String
-  type        String   @default("API_KEY") // API_KEY, BEARER
-  key         String?  // e.g. "X-API-KEY", empty for Bearer
-  value       String   // The secret token
-  location    String   @default("HEADER") // HEADER, QUERY
-  
+  id       Int     @id @default(autoincrement())
+  name     String
+  type     String  @default("API_KEY") // API_KEY, BEARER
+  key      String? // e.g. "X-API-KEY", empty for Bearer
+  value    String // The secret token
+  location String  @default("HEADER") // HEADER, QUERY
+
   // Auto-Refresh Logic
   refreshUrl      String?
-  refreshPayload  String?
+  refreshPayload  String?   @db.Text
   tokenPath       String?
-  refreshInterval Int?     // In minutes
+  refreshInterval Int? // In minutes
   lastRefreshed   DateTime?
 
-  userId      Int
-  user        User     @relation(fields: [userId], references: [id])
-  
-  tools       AiTool[]
-  rules       Rule[]
-  schedules   Schedule[]
-  broadcasts  Broadcast[]
+  userId Int
+  user   User @relation(fields: [userId], references: [id])
 
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  tools      AiTool[]
+  rules      Rule[]
+  schedules  Schedule[]
+  broadcasts Broadcast[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([userId, name])
+}
+
+model Game {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  name      String
+  trigger   String   @unique
+  type      String // TRIVIA, AI_RPG, GUESS_NUMBER
+  config    String   @db.Text
+  reward    Int      @default(10)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  user        User         @relation(fields: [userId], references: [id])
+  activeGames ActiveGame[]
+}
+
+model ActiveGame {
+  id          Int      @id @default(autoincrement())
+  gameId      Int
+  playerPhone String
+  sessionId   String
+  state       String   @db.Text
+  startedAt   DateTime @default(now())
+  lastActive  DateTime @default(now())
+
+  game Game @relation(fields: [gameId], references: [id])
+
+  @@unique([playerPhone])
+}
+
+model Note {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  keyword   String
+  content   String   @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@unique([userId, keyword])
 }
