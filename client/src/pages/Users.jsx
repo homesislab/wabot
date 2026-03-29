@@ -25,7 +25,9 @@ const Users = () => {
         aiApiKey: '',
         aiProvider: 'openai',
         aiBriefing: '',
-        isAiEnabled: false
+        isAiEnabled: false,
+        isSchedulerEnabled: true,
+        isAutoRetryEnabled: true
     });
 
     const { user: currentUser } = useAuth();
@@ -136,7 +138,9 @@ const Users = () => {
             aiApiKey: user.aiApiKey || '',
             aiProvider: user.aiProvider || 'openai',
             aiBriefing: user.aiBriefing || '',
-            isAiEnabled: user.isAiEnabled || false
+            isAiEnabled: user.isAiEnabled || false,
+            isSchedulerEnabled: user.isSchedulerEnabled ?? true,
+            isAutoRetryEnabled: user.isAutoRetryEnabled ?? true
         });
     };
 
@@ -433,6 +437,43 @@ const Users = () => {
                                     />
                                 </div>
                             )}
+
+                            {/* System Automations Section */}
+                            <div className="mt-6 pt-6 border-t border-gray-100">
+                                <h4 className="text-sm font-bold text-gray-900 uppercase tracking-wider mb-4">System Automations</h4>
+                                <div className="space-y-4">
+                                    <div className="flex items-center justify-between">
+                                        <div>
+                                            <p className="text-sm font-medium text-gray-700">Enable Scheduler</p>
+                                            <p className="text-xs text-gray-500">Allow cron jobs to execute scheduled messages</p>
+                                        </div>
+                                        <label className="relative inline-flex items-center cursor-pointer">
+                                            <input
+                                                type="checkbox"
+                                                className="sr-only peer"
+                                                checked={settingsData.isSchedulerEnabled}
+                                                onChange={e => setSettingsData({ ...settingsData, isSchedulerEnabled: e.target.checked })}
+                                            />
+                                            <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-emerald-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-sisia-primary"></div>
+                                        </label>
+                                    </div>
+                                    <div className="flex items-center justify-between">
+                                        <div>
+                                            <p className="text-sm font-medium text-gray-700">Enable Auto-Retry</p>
+                                            <p className="text-xs text-gray-500">Automatically retry failed broadcasts</p>
+                                        </div>
+                                        <label className="relative inline-flex items-center cursor-pointer">
+                                            <input
+                                                type="checkbox"
+                                                className="sr-only peer"
+                                                checked={settingsData.isAutoRetryEnabled}
+                                                onChange={e => setSettingsData({ ...settingsData, isAutoRetryEnabled: e.target.checked })}
+                                            />
+                                            <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-emerald-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-sisia-primary"></div>
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
 
                             {/* AI Settings Section */}
                             <div className="mt-8 pt-6 border-t border-gray-100">

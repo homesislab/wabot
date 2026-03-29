@@ -29,7 +29,7 @@ io.on('connection', (socket) => {
 // For now, let's export it or attach to global.
 global.io = io;
 
-import { initScheduler } from './src/services/schedulerService.js';
+import { initScheduler, initAutoRetryJob } from './src/services/schedulerService.js';
 import { initSessions } from './src/services/sessionManager.js';
 import { initializeBots } from './src/services/telegramService.js';
 import { initGameAutoAdvance } from './src/services/gameService.js';
@@ -38,6 +38,7 @@ httpServer.listen(port, async () => {
     logger.info(`Server running on port ${port}`);
     await initSessions();
     await initScheduler();
+    initAutoRetryJob();
     await initializeBots();
     initGameAutoAdvance();
 });

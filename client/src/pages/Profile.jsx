@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { User, Mail, Phone, Shield, Coins, Zap, Edit2, Key, Loader, Bot } from 'lucide-react';
+import { User, Mail, Phone, Shield, Coins, Zap, Edit2, Key, Loader, Bot, Settings } from 'lucide-react';
 import api from '../api';
 import { useAuth } from '../context/AuthContext';
 
@@ -14,7 +14,7 @@ const Profile = () => {
     const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
 
     // Edit Profile State
-    const [editForm, setEditForm] = useState({ email: '', phone: '', aiProvider: 'openai', aiModel: '', aiApiKey: '', isAiEnabled: false, isImageEnabled: true, aiImageProvider: 'hercai', aiImageApiKey: '' });
+    const [editForm, setEditForm] = useState({ email: '', phone: '', aiProvider: 'openai', aiModel: '', aiApiKey: '', isAiEnabled: false, isImageEnabled: true, aiImageProvider: 'hercai', aiImageApiKey: '', isSchedulerEnabled: true, isAutoRetryEnabled: true });
 
     // Change Password State
     const [passwordForm, setPasswordForm] = useState({ currentPassword: '', newPassword: '', confirmNewPassword: '' });
@@ -34,7 +34,9 @@ const Profile = () => {
                 aiApiKey: res.data.aiApiKey || '',
                 isAiEnabled: res.data.isAiEnabled || false,
                 isImageEnabled: res.data.isImageEnabled ?? true,
-                aiImageProvider: res.data.aiImageProvider || 'hercai'
+                aiImageProvider: res.data.aiImageProvider || 'hercai',
+                isSchedulerEnabled: res.data.isSchedulerEnabled ?? true,
+                isAutoRetryEnabled: res.data.isAutoRetryEnabled ?? true
             });
             if (setUser) setUser(res.data);
         } catch {
@@ -140,7 +142,9 @@ const Profile = () => {
                                 aiApiKey: profile?.aiApiKey || '',
                                 isAiEnabled: profile?.isAiEnabled || false,
                                 isImageEnabled: profile?.isImageEnabled ?? true,
-                                aiImageProvider: profile?.aiImageProvider || 'hercai'
+                                aiImageProvider: profile?.aiImageProvider || 'hercai',
+                                isSchedulerEnabled: profile?.isSchedulerEnabled ?? true,
+                                isAutoRetryEnabled: profile?.isAutoRetryEnabled ?? true
                             });
                             setModalError('');
                             setIsEditModalOpen(true);
@@ -255,6 +259,30 @@ const Profile = () => {
                 </div>
             </div>
 
+            {/* System Automations */}
+            <div className="bg-white rounded-2xl shadow-md p-6 border border-gray-100 flex flex-col gap-4 mt-6">
+                <h3 className="text-lg font-bold text-gray-800 border-b pb-2 flex items-center gap-2">
+                    <Settings size={20} className="text-sisia-primary" />
+                    System Automations
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                        <p className="text-sm text-gray-500 font-medium mb-1">Background Scheduler</p>
+                        <p className={`font-medium ${profile?.isSchedulerEnabled !== false ? 'text-green-600' : 'text-gray-500'}`}>
+                            {profile?.isSchedulerEnabled !== false ? '● Active' : '○ Paused'}
+                        </p>
+                        <p className="text-xs text-gray-500 mt-1">Allows cron jobs to run for scheduled messages.</p>
+                    </div>
+                    <div>
+                        <p className="text-sm text-gray-500 font-medium mb-1">Broadcast Auto-Retry</p>
+                        <p className={`font-medium ${profile?.isAutoRetryEnabled !== false ? 'text-green-600' : 'text-gray-500'}`}>
+                            {profile?.isAutoRetryEnabled !== false ? '● Active' : '○ Disabled'}
+                        </p>
+                        <p className="text-xs text-gray-500 mt-1">Automatically retries failed broadcast messages every hour.</p>
+                    </div>
+                </div>
+            </div>
+
             {/* AI Configuration */}
             <div className="bg-white rounded-2xl shadow-md p-6 border border-gray-100 flex flex-col gap-4 mt-6">
                 <h3 className="text-lg font-bold text-gray-800 border-b pb-2 flex items-center gap-2">
@@ -319,6 +347,38 @@ const Profile = () => {
                                     onChange={e => setEditForm({ ...editForm, phone: e.target.value })}
                                     className="w-full px-4 py-2 border rounded-xl outline-none focus:ring-2 focus:ring-sisia-primary/20 focus:border-sisia-primary"
                                 />
+                            </div>
+
+                            <div className="border-t pt-4 mt-2 mb-2">
+                                <h4 className="font-medium text-gray-800 mb-3 flex items-center justify-between">
+                                    System Automations
+                                </h4>
+                                <div className="space-y-3 bg-gray-50 p-3 rounded-xl border border-gray-100">
+                                    <label className="flex items-center justify-between cursor-pointer">
+                                        <span className="text-sm font-medium text-gray-700">Enable Scheduler</span>
+                                        <div className="relative inline-flex items-center">
+                                            <input
+                                                type="checkbox"
+                                                checked={editForm.isSchedulerEnabled}
+                                                onChange={e => setEditForm({ ...editForm, isSchedulerEnabled: e.target.checked })}
+                                                className="sr-only peer"
+                                            />
+                                            <div className="w-9 h-5 bg-gray-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-sisia-primary"></div>
+                                        </div>
+                                    </label>
+                                    <label className="flex items-center justify-between cursor-pointer">
+                                        <span className="text-sm font-medium text-gray-700">Enable Auto-Retry</span>
+                                        <div className="relative inline-flex items-center">
+                                            <input
+                                                type="checkbox"
+                                                checked={editForm.isAutoRetryEnabled}
+                                                onChange={e => setEditForm({ ...editForm, isAutoRetryEnabled: e.target.checked })}
+                                                className="sr-only peer"
+                                            />
+                                            <div className="w-9 h-5 bg-gray-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-sisia-primary"></div>
+                                        </div>
+                                    </label>
+                                </div>
                             </div>
 
                             <div className="border-t pt-4 mt-2">

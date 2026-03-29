@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import api from '../api';
-import { Plus, Trash, Upload, Loader, Edit, X, Grid, Smartphone } from 'lucide-react';
+import { Plus, Trash, Upload, Loader, Edit, X, Grid, Smartphone, Power } from 'lucide-react';
 
 const Scheduler = () => {
     const [schedules, setSchedules] = useState([]);
@@ -10,6 +10,8 @@ const Scheduler = () => {
     const [credentials, setCredentials] = useState([]);
     const [uploading, setUploading] = useState(false);
     const [editingId, setEditingId] = useState(null);
+    const [isSchedulerEnabled, setIsSchedulerEnabled] = useState(true);
+    const [isAutoRetryEnabled, setIsAutoRetryEnabled] = useState(true);
     const [frequency, setFrequency] = useState('CUSTOM'); // HOURLY, DAILY, CUSTOM
     const [dailyTime, setDailyTime] = useState('08:00');
     const [formData, setFormData] = useState({
@@ -45,7 +47,17 @@ const Scheduler = () => {
                 console.error("Failed to fetch sessions", e);
             }
         };
+        const loadProfile = async () => {
+            try {
+                const res = await api.get('/auth/me');
+                setIsSchedulerEnabled(res.data.isSchedulerEnabled ?? true);
+                setIsAutoRetryEnabled(res.data.isAutoRetryEnabled ?? true);
+            } catch (e) {
+                console.error("Failed to load profile", e);
+            }
+        };
         loadSessions();
+        loadProfile();
         fetchCredentials();
     }, []);
 
@@ -82,6 +94,24 @@ const Scheduler = () => {
             setCredentials(res.data);
         } catch (error) {
             console.error("Failed to fetch credentials", error);
+        }
+    };
+
+    const handleToggleScheduler = async (checked) => {
+        setIsSchedulerEnabled(checked);
+        try {
+            await api.put('/auth/me', { isSchedulerEnabled: checked });
+        } catch (e) {
+            console.error("Failed to update scheduler setting", e);
+        }
+    };
+
+    const handleToggleAutoRetry = async (checked) => {
+        setIsAutoRetryEnabled(checked);
+        try {
+            await api.put('/auth/me', { isAutoRetryEnabled: checked });
+        } catch (e) {
+            console.error("Failed to update auto-retry setting", e);
         }
     };
 
@@ -201,9 +231,37 @@ const Scheduler = () => {
         fetchSchedules();
     };
 
+    const handleToggleScheduleActive = async (schedule, newStatus) => {
+        try {
+            await api.put(`/schedules/${schedule.id}`, { isActive: newStatus });
+            fetchSchedules();
+        } catch (error) {
+            console.error(error);
+            alert("Failed to update schedule status");
+        }
+    };
+
     return (
         <div>
-            <h2 className="text-2xl font-bold mb-6">Scheduler</h2>
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+                <h2 className="text-2xl font-bold">Scheduler</h2>
+                <div className="flex flex-wrap gap-3">
+                    <label className="flex items-center gap-2 cursor-pointer bg-white px-3 py-2 rounded-xl border border-gray-200 shadow-sm hover:border-sisia-primary/50 transition-colors">
+                        <span className="text-sm font-semibold text-gray-700">Master Scheduler</span>
+                        <div className="relative inline-flex items-center">
+                            <input type="checkbox" className="sr-only peer" checked={isSchedulerEnabled} onChange={e => handleToggleScheduler(e.target.checked)} />
+                            <div className="w-9 h-5 bg-gray-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-sisia-primary"></div>
+                        </div>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer bg-white px-3 py-2 rounded-xl border border-gray-200 shadow-sm hover:border-sisia-primary/50 transition-colors">
+                        <span className="text-sm font-semibold text-gray-700">Auto-Retry Failed</span>
+                        <div className="relative inline-flex items-center">
+                            <input type="checkbox" className="sr-only peer" checked={isAutoRetryEnabled} onChange={e => handleToggleAutoRetry(e.target.checked)} />
+                            <div className="w-9 h-5 bg-gray-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-sisia-primary"></div>
+                        </div>
+                    </label>
+                </div>
+            </div>
 
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 mb-8 overflow-hidden">
                 <div className="bg-white px-6 py-4 border-b border-gray-100 flex justify-between items-center">
@@ -412,13 +470,16 @@ const Scheduler = () => {
 
                             <div className="divide-y divide-gray-50">
                                 {sessionSchedules.map(sch => (
-                                    <div key={sch.id} className="p-6 hover:bg-gray-50 transition-colors flex flex-col md:flex-row gap-4 items-start md:items-center justify-between group">
+                                    <div key={sch.id} className={`p-6 hover:bg-gray-50 transition-colors flex flex-col md:flex-row gap-4 items-start md:items-center justify-between group ${!sch.isActive ? 'opacity-60' : ''}`}>
                                         <div className="flex-1">
                                             <div className="flex items-center gap-3 mb-2">
                                                 <span className="text-sm font-bold text-gray-900 bg-gray-100 px-2 py-0.5 rounded">To: {sch.recipient}</span>
                                                 <span className="text-xs font-mono text-gray-500 bg-gray-50 border px-1.5 py-0.5 rounded flex items-center gap-1" title="Cron Expression">
                                                     <Loader size={10} className="text-gray-400" /> {sch.cronExpression}
                                                 </span>
+                                                {!sch.isActive && (
+                                                    <span className="text-[10px] font-bold bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded uppercase tracking-wider">Paused</span>
+                                                )}
                                             </div>
                                             <p className="text-gray-600 text-sm leading-relaxed mb-2 line-clamp-2">{sch.content}</p>
 
@@ -435,7 +496,15 @@ const Scheduler = () => {
                                             </div>
                                         </div>
 
-                                        <div className="flex items-center gap-2 opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity">
+                                        <div className="flex items-center gap-2">
+                                            <button
+                                                onClick={() => handleToggleScheduleActive(sch, !sch.isActive)}
+                                                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${sch.isActive ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100' : 'bg-gray-100 text-gray-500 border-gray-200 hover:bg-gray-200'}`}
+                                                title={sch.isActive ? "Click to Pause" : "Click to Resume"}
+                                            >
+                                                <Power size={12} />
+                                                {sch.isActive ? 'Active' : 'Paused'}
+                                            </button>
                                             <button
                                                 onClick={() => handleEdit(sch)}
                                                 className="p-2 text-gray-400 hover:text-sisia-primary hover:bg-white hover:shadow-sm border border-transparent hover:border-gray-200 rounded-lg transition-all"

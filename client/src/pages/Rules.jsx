@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import api from '../api';
-import { Plus, Trash, Zap, MessageSquare, Globe, Upload, Loader, Edit, X, Bot, Grid } from 'lucide-react';
+import { Plus, Trash, Zap, MessageSquare, Globe, Upload, Loader, Edit, X, Bot, Grid, Power } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 const Rules = () => {
@@ -172,6 +172,16 @@ const Rules = () => {
         if (!window.confirm("Delete this rule?")) return;
         await api.delete(`/rules/${id}`);
         fetchRules();
+    };
+
+    const handleToggleRule = async (rule) => {
+        try {
+            await api.put(`/rules/${rule.id}`, { isActive: !rule.isActive });
+            fetchRules();
+        } catch (error) {
+            console.error(error);
+            alert("Failed to update rule status");
+        }
     };
 
     return (
@@ -371,7 +381,7 @@ const Rules = () => {
                         </h3>
                         <div className="grid grid-cols-1 gap-4 pl-4">
                             {groupRules.map(rule => (
-                                <div key={rule.id} className="bg-white p-5 rounded-xl shadow-sm border border-gray-200 flex flex-col md:flex-row md:items-center justify-between gap-4 group hover:shadow-md hover:border-sisia-primary/30 transition-all">
+                                <div key={rule.id} className={`bg-white p-5 rounded-xl shadow-sm border border-gray-200 flex flex-col md:flex-row md:items-center justify-between gap-4 group hover:shadow-md hover:border-sisia-primary/30 transition-all ${!rule.isActive ? 'opacity-60' : ''}`}>
                                     <div className="flex-1">
                                         <div className="flex items-center gap-3 mb-2">
                                             <span className={`h-8 w-8 rounded-lg flex items-center justify-center ${rule.triggerType === 'ALL' ? 'bg-purple-100 text-purple-600' :
@@ -384,9 +394,12 @@ const Rules = () => {
                                             </span>
                                             <div>
                                                 <h4 className="font-bold text-gray-900 leading-tight">{rule.name}</h4>
-                                                <span className="text-[10px] text-gray-400 font-medium uppercase tracking-wide">
-                                                    Topic: {rule.triggerType}
-                                                </span>
+                                                <div className="flex items-center gap-2 mt-0.5">
+                                                    <span className="text-[10px] text-gray-400 font-medium uppercase tracking-wide">Topic: {rule.triggerType}</span>
+                                                    {!rule.isActive && (
+                                                        <span className="text-[10px] font-bold bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded uppercase tracking-wider">Paused</span>
+                                                    )}
+                                                </div>
                                             </div>
                                         </div>
 
@@ -423,6 +436,14 @@ const Rules = () => {
                                         </div>
                                     </div>
                                     <div className="flex md:flex-col gap-2 border-t md:border-t-0 md:border-l border-gray-100 pt-3 md:pt-0 md:pl-4">
+                                        <button
+                                            onClick={() => handleToggleRule(rule)}
+                                            className={`flex-1 md:flex-none flex items-center justify-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${rule.isActive !== false ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100' : 'bg-gray-100 text-gray-500 border-gray-200 hover:bg-gray-200'}`}
+                                            title={rule.isActive !== false ? 'Click to Pause' : 'Click to Resume'}
+                                        >
+                                            <Power size={12} />
+                                            {rule.isActive !== false ? 'Active' : 'Paused'}
+                                        </button>
                                         <button onClick={() => handleEdit(rule)} className="flex-1 md:flex-none flex items-center justify-center p-2 rounded-lg text-gray-400 hover:text-sisia-primary hover:bg-sisia-primary/5 transition-all" title="Edit Rule">
                                             <Edit size={18} />
                                         </button>

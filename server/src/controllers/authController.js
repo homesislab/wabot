@@ -101,7 +101,7 @@ export const getMe = async (req, res) => {
     try {
         const user = await prisma.user.findUnique({
             where: { id: req.user.id },
-            select: { id: true, username: true, role: true, credits: true, isActive: true, planType: true, messageCost: true, planExpiresAt: true, aiApiKey: true, aiProvider: true, aiModel: true, aiBriefing: true, isAiEnabled: true, isImageEnabled: true, aiImageProvider: true, aiImageApiKey: true, email: true, phone: true }
+            select: { id: true, username: true, role: true, credits: true, isActive: true, planType: true, messageCost: true, planExpiresAt: true, aiApiKey: true, aiProvider: true, aiModel: true, aiBriefing: true, isAiEnabled: true, isImageEnabled: true, aiImageProvider: true, aiImageApiKey: true, email: true, phone: true, isSchedulerEnabled: true, isAutoRetryEnabled: true }
         });
         if (!user) return res.sendStatus(404);
         res.json(user);
@@ -111,22 +111,21 @@ export const getMe = async (req, res) => {
 };
 
 export const updateProfile = async (req, res) => {
-    const { email, phone, aiProvider, aiModel, aiApiKey, isAiEnabled, isImageEnabled, aiImageProvider, aiImageApiKey } = req.body;
+    const { email, phone, aiProvider, aiModel, aiApiKey, isAiEnabled, isImageEnabled, aiImageProvider, aiImageApiKey, isSchedulerEnabled, isAutoRetryEnabled } = req.body;
     try {
+        const dataToUpdate = {
+            email, phone, aiProvider, aiModel, aiApiKey, aiImageProvider, aiImageApiKey
+        };
+        if (typeof isAiEnabled !== 'undefined') dataToUpdate.isAiEnabled = isAiEnabled;
+        if (typeof isImageEnabled !== 'undefined') dataToUpdate.isImageEnabled = isImageEnabled;
+        if (typeof isSchedulerEnabled !== 'undefined') dataToUpdate.isSchedulerEnabled = isSchedulerEnabled;
+        if (typeof isAutoRetryEnabled !== 'undefined') dataToUpdate.isAutoRetryEnabled = isAutoRetryEnabled;
+
         const user = await prisma.user.update({
             where: { id: req.user.id },
-            data: {
-                email,
-                phone,
-                aiProvider,
-                aiModel,
-                aiApiKey,
-                isAiEnabled,
-                isImageEnabled,
-                aiImageProvider,
-                aiImageApiKey
-            }
+            data: dataToUpdate
         });
+        
         res.json({
             id: user.id,
             username: user.username,
@@ -137,7 +136,9 @@ export const updateProfile = async (req, res) => {
             aiApiKey: user.aiApiKey,
             isAiEnabled: user.isAiEnabled,
             isImageEnabled: user.isImageEnabled,
-            aiImageProvider: user.aiImageProvider
+            aiImageProvider: user.aiImageProvider,
+            isSchedulerEnabled: user.isSchedulerEnabled,
+            isAutoRetryEnabled: user.isAutoRetryEnabled
         });
     } catch (error) {
         logger.error(error);

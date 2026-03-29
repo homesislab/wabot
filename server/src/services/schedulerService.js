@@ -29,6 +29,17 @@ export const scheduleJob = (schedule) => {
         const task = cron.schedule(schedule.cronExpression, async () => {
             logger.info(`Executing schedule ${schedule.id}`);
             try {
+                // Check if user has scheduler enabled
+                const userCheck = await prisma.user.findUnique({
+                    where: { id: schedule.userId },
+                    select: { isSchedulerEnabled: true }
+                });
+
+                if (!userCheck || userCheck.isSchedulerEnabled === false) {
+                    logger.info(`Schedule ${schedule.id} skipped: Scheduler is disabled for user ${schedule.userId}`);
+                    return;
+                }
+
                 const isTelegram = schedule.sessionId.startsWith('telegram_');
                 const jid = isTelegram ? schedule.recipient : (schedule.recipient.includes('@') ? schedule.recipient : `${schedule.recipient}@s.whatsapp.net`);
 
@@ -158,3 +169,58 @@ export const removeJob = (id) => {
         jobs.delete(id);
     }
 };
+
+export const initAutoRetryJob = () => {
+    // Run at minute 0 past every hour
+    cron.schedule('0 * * * *', async () => {
+        logger.info('Running global Auto-Retry job for failed broadcasts');
+        try {
+            // Find users with auto-retry enabled
+            const users = await prisma.user.findMany({
+                where: { isAutoRetryEnabled: true },
+                select: { id: true }
+            });
+            const userIds = users.map(u => u.id);
+
+            if (userIds.length === 0) return;
+
+            // Find broadcasts with failed logs for these users
+            const broadcasts = await prisma.broadcast.findMany({
+                where: {
+                    userId: { in: userIds },
+                    failed: { gt: 0 }
+                },
+                include: { logs: { where: { status: 'FAILED' } } }
+            });
+
+            for (const broadcast of broadcasts) {
+                if (broadcast.logs.length === 0) continue;
+                logger.info(`Auto-retrying ${broadcast.logs.length} messages for Broadcast ${broadcast.id}`);
+                
+                for (const log of broadcast.logs) {
+                    try {
+                        const isTelegram = broadcast.sessionId.startsWith('telegram_');
+                        const jid = isTelegram ? log.contactPhone : (log.contactPhone.includes('@') ? log.contactPhone : `${log.contactPhone}@s.whatsapp.net`);
+                        
+                        let payload = broadcast.messageType === 'IMAGE' ? { image: { url: broadcast.mediaUrl }, caption: broadcast.content } : { text: broadcast.content };
+                        
+                        const sent = await sendOutgoingMessageBySession(broadcast.sessionId, jid, payload, null);
+                        if (sent) {
+                            await prisma.broadcastLog.update({ where: { id: log.id }, data: { status: "SUCCESS", errorMessage: null } });
+                            await prisma.broadcast.update({ where: { id: broadcast.id }, data: { sent: { increment: 1 }, failed: { decrement: 1 } }});
+                            await creditService.deductCredit(broadcast.userId);
+                            
+                            const delay = Math.floor(Math.random() * 3000) + 2000;
+                            await new Promise(r => setTimeout(r, delay));
+                        }
+                    } catch (e) {
+                         logger.warn(`Auto-Retry failed for broadcast ${broadcast.id} log ${log.id}: ${e.message}`);
+                    }
+                }
+            }
+        } catch(err) {
+            logger.error(`Error in Auto-Retry job: ${err.message}`);
+        }
+    });
+};
+

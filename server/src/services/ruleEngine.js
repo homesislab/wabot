@@ -155,34 +155,79 @@ const executeAction = async (rule, normalizedMsg) => {
 
     if (rule.actionType === 'API_CALL' && rule.apiUrl) {
         try {
-            let url = rule.apiUrl;
             const messageText = text || '';
+            let matches = null;
 
-            // Handle Dynamic Parameters for REGEX
             if (rule.triggerType === 'REGEX') {
                 try {
                     const regex = new RegExp(rule.triggerValue, 'i');
-                    const matches = messageText.match(regex);
-                    if (matches) {
-                        matches.forEach((match, index) => {
-                            url = url.replace(new RegExp(`\\{${index}\\}`, 'g'), match);
-                        });
-                    }
+                    matches = messageText.match(regex);
                 } catch (e) {
-                    logger.error(`Regex replacement error: ${e.message}`);
+                    logger.error(`Regex compilation error in rule ${rule.id}: ${e.message}`);
                 }
             }
 
+            // 1. Context extraction
+            const context = {
+                messageText: messageText,
+                senderName: normalizedMsg.pushName || normalizedMsg.participant?.split('@')[0] || 'User',
+                senderNumber: normalizedMsg.participant ? normalizedMsg.participant.split('@')[0] : '',
+                sessionId: sessionId
+            };
+
+            // 2. Safe Escaper for JSON strings
+            const safeEscape = (str) => {
+                if (str === null || str === undefined) return "";
+                const stringified = JSON.stringify(String(str));
+                return stringified.slice(1, -1); // Remove the outer quotes added by stringify
+            };
+
+            // 3. Process URL
+            let url = rule.apiUrl;
+            if (url) {
+                // Replace variables in URL
+                url = url.replace(/\{\{messageText\}\}/g, encodeURIComponent(context.messageText));
+                url = url.replace(/\{\{senderName\}\}/g, encodeURIComponent(context.senderName));
+                url = url.replace(/\{\{senderNumber\}\}/g, encodeURIComponent(context.senderNumber));
+                url = url.replace(/\{\{sessionId\}\}/g, encodeURIComponent(context.sessionId));
+
+                if (matches) {
+                    matches.forEach((match, index) => {
+                        // Fallback support for {0} and explicit support for {{0}}
+                        url = url.replace(new RegExp(`\\{${index}\\}`, 'g'), encodeURIComponent(match));
+                        url = url.replace(new RegExp(`\\{\\{${index}\\}\\}`, 'g'), encodeURIComponent(match));
+                    });
+                }
+            }
+
+            // 4. Process API Payload
+            let rawPayloadStr = rule.apiPayload || "{}";
+
+            rawPayloadStr = rawPayloadStr.replace(/\{\{messageText\}\}/g, safeEscape(context.messageText));
+            rawPayloadStr = rawPayloadStr.replace(/\{\{senderName\}\}/g, safeEscape(context.senderName));
+            rawPayloadStr = rawPayloadStr.replace(/\{\{senderNumber\}\}/g, safeEscape(context.senderNumber));
+            rawPayloadStr = rawPayloadStr.replace(/\{\{sessionId\}\}/g, safeEscape(context.sessionId));
+
+            if (matches) {
+                matches.forEach((match, index) => {
+                    rawPayloadStr = rawPayloadStr.replace(new RegExp(`\\{\\{${index}\\}\\}`, 'g'), safeEscape(match));
+                });
+            }
+
+            // 5. Parse JSON Safely
             let apiPayloadObj = {};
             try {
-                apiPayloadObj = JSON.parse(rule.apiPayload || "{}");
+                apiPayloadObj = JSON.parse(rawPayloadStr);
             } catch (e) {
-                try {
-                    const fixed = fixJsonString(rule.apiPayload || "{}");
-                    apiPayloadObj = JSON.parse(fixed);
-                } catch (e2) {
-                    logger.warn(`Rule ${rule.id} invalid JSON payload: ${e.message}`);
-                }
+                logger.error(`Rule ${rule.id} failed to parse JSON after variable injection: ${e.message}`);
+                logger.debug(`Malformed Payload: ${rawPayloadStr}`);
+                
+                await messageAdapter.sendMessage(
+                    normalizedMsg, 
+                    { text: `⚠️ *System Error*: Invalid webhook payload configuration for this action. Please check your Rule settings.` }, 
+                    rule.userId
+                );
+                return; // Stop execution if JSON is invalid
             }
 
             const payload = {

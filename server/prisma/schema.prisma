@@ -100,12 +100,14 @@ model User {
   aiProvider    String         @default("openai") // openai, gemini
   aiModel       String? // e.g. gemini-1.5-flash, gpt-4
   aiBriefing    String?        @db.Text
-  isAiEnabled   Boolean        @default(false)
-  isImageEnabled Boolean       @default(true)
-  aiImageProvider String       @default("hercai") // openai, hercai, pollinations, gemini
-  aiImageApiKey   String?      @db.Text
-  isActive      Boolean        @default(true)
-  createdAt     DateTime       @default(now())
+  isAiEnabled    Boolean        @default(false)
+  isImageEnabled Boolean        @default(true)
+  aiImageProvider String        @default("hercai") // openai, hercai, pollinations, gemini
+  aiImageApiKey  String?        @db.Text
+  isSchedulerEnabled Boolean    @default(true)
+  isAutoRetryEnabled Boolean    @default(true)
+  isActive       Boolean        @default(true)
+  createdAt      DateTime       @default(now())
   contacts      Contact[]
   rules         Rule[]
   schedules     Schedule[]
