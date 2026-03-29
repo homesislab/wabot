@@ -7,6 +7,8 @@ import * as messageAdapter from './messageAdapter.js';
 // Dictionary to keep track of active bot instances
 const bots = {};
 
+export const getBots = () => bots;
+
 /**
  * Handle incoming Telegram messages
  */
@@ -32,6 +34,9 @@ const handleIncomingMessage = async (botInstance, botConfig, msg) => {
             botInstance
         );
 
+        // Pass bot username for trigger matching
+        normalizedMsg.botUsername = botInstance.botInfo?.username;
+
         logger.info(`Received Telegram message from ${participant} in ${jid}: ${msg.text}`);
 
         // Pass to the rule engine
@@ -53,6 +58,14 @@ export const startBot = (botConfig) => {
         }
 
         const bot = new TelegramBot(botConfig.token, { polling: true });
+
+        // Fetch bot info to get username for precise mention detection in groups
+        bot.getMe().then((me) => {
+            bot.botInfo = me;
+            logger.info(`Telegram bot ${botConfig.name} authenticated as @${me.username}`);
+        }).catch(err => {
+            logger.error(`Failed to get Telegram bot info for ${botConfig.name}: ${err.message}`);
+        });
 
         bot.on('message', (msg) => {
             handleIncomingMessage(bot, botConfig, msg);
@@ -111,4 +124,21 @@ export const initializeBots = async () => {
     } catch (error) {
         logger.error(`Error initializing Telegram bots: ${error.message}`);
     }
+};
+
+/**
+ * Shut down all active bot instances
+ */
+export const stopAllBots = () => {
+    logger.info("Stopping all Telegram bot instances...");
+    for (const botId in bots) {
+        try {
+            bots[botId].stopPolling();
+            logger.info(`Stopped bot ID: ${botId}`);
+        } catch (e) {
+            logger.error(`Error stopping bot ${botId}: ${e.message}`);
+        }
+    }
+    // Clear bots object
+    for (const key in bots) delete bots[key];
 };

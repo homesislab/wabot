@@ -101,7 +101,7 @@ export const getMe = async (req, res) => {
     try {
         const user = await prisma.user.findUnique({
             where: { id: req.user.id },
-            select: { id: true, username: true, role: true, credits: true, isActive: true, planType: true, messageCost: true, planExpiresAt: true, aiApiKey: true, aiProvider: true, aiModel: true, aiBriefing: true, isAiEnabled: true, email: true, phone: true }
+            select: { id: true, username: true, role: true, credits: true, isActive: true, planType: true, messageCost: true, planExpiresAt: true, aiApiKey: true, aiProvider: true, aiModel: true, aiBriefing: true, isAiEnabled: true, isImageEnabled: true, aiImageProvider: true, aiImageApiKey: true, email: true, phone: true }
         });
         if (!user) return res.sendStatus(404);
         res.json(user);
@@ -111,7 +111,7 @@ export const getMe = async (req, res) => {
 };
 
 export const updateProfile = async (req, res) => {
-    const { email, phone, aiProvider, aiModel, aiApiKey, isAiEnabled } = req.body;
+    const { email, phone, aiProvider, aiModel, aiApiKey, isAiEnabled, isImageEnabled, aiImageProvider, aiImageApiKey } = req.body;
     try {
         const user = await prisma.user.update({
             where: { id: req.user.id },
@@ -121,7 +121,10 @@ export const updateProfile = async (req, res) => {
                 aiProvider,
                 aiModel,
                 aiApiKey,
-                isAiEnabled
+                isAiEnabled,
+                isImageEnabled,
+                aiImageProvider,
+                aiImageApiKey
             }
         });
         res.json({
@@ -132,7 +135,9 @@ export const updateProfile = async (req, res) => {
             aiProvider: user.aiProvider,
             aiModel: user.aiModel,
             aiApiKey: user.aiApiKey,
-            isAiEnabled: user.isAiEnabled
+            isAiEnabled: user.isAiEnabled,
+            isImageEnabled: user.isImageEnabled,
+            aiImageProvider: user.aiImageProvider
         });
     } catch (error) {
         logger.error(error);

@@ -8,10 +8,32 @@ import { fixJsonString } from '../utils/jsonUtils.js';
 import * as gameService from './gameService.js';
 import * as messageAdapter from './messageAdapter.js';
 
+const processedMessages = new Set();
+
 export const processMessage = async (normalizedMsg) => {
     try {
         const { platform, sessionId, participant, jid, text, client, rawMessage } = normalizedMsg;
         if (!text) return;
+
+        // Deduplication using message ID
+        // Note: For Telegram, message_id is unique only within a chat, so we use platform:sessionId:msgId
+        const rawId = platform === 'telegram' ? rawMessage?.message_id?.toString() : rawMessage?.key?.id;
+        const msgId = rawId ? `${platform}:${sessionId}:${rawId}` : null;
+
+        if (msgId) {
+            if (processedMessages.has(msgId)) {
+                logger.info(`Duplicate message ${msgId} ignored`);
+                return true;
+            }
+            processedMessages.add(msgId);
+        }
+        // Keep cache small (e.g., last 100 messages)
+        if (processedMessages.size > 100) {
+            const firstItem = processedMessages.values().next().value;
+            processedMessages.delete(firstItem);
+        }
+
+        logger.info(`Processing message ${msgId} from ${participant} in ${jid}`);
 
         // 1. Check if user is actively playing a game
         const isPlaying = await gameService.handleActiveGame(normalizedMsg);
@@ -47,6 +69,12 @@ export const processMessage = async (normalizedMsg) => {
             return true; // Stop processing rules
         }
 
+        // 4. Check for Image Generation command (!image)
+        const imageHandled = await handleImageCommand(userId, normalizedMsg);
+        if (imageHandled) {
+            return true; // Stop processing rules
+        }
+
         const rules = await prisma.rule.findMany({
             where: {
                 isActive: true,
@@ -75,7 +103,9 @@ export const processMessage = async (normalizedMsg) => {
                         const botJid = client?.user?.id ? jidNormalizedUser(client.user.id) : null;
                         if (botJid && mentions.includes(botJid)) matched = true;
                     } else if (platform === 'telegram') {
-                        if (text.includes('@')) matched = true;
+                        const botUser = normalizedMsg.botUsername;
+                        if (botUser && text.includes(`@${botUser}`)) matched = true;
+                        else if (text.includes('@')) matched = true; // Fallback
                     }
                 } else {
                     if (text.toLowerCase().includes(rule.triggerValue.toLowerCase())) matched = true;
@@ -95,7 +125,9 @@ export const processMessage = async (normalizedMsg) => {
                     const botJid = client?.user?.id ? jidNormalizedUser(client.user.id) : null;
                     if (botJid && mentions.includes(botJid)) matched = true;
                 } else if (platform === 'telegram') {
-                    if (text.includes('@')) matched = true;
+                    const botUser = normalizedMsg.botUsername;
+                    if (botUser && text.includes(`@${botUser}`)) matched = true;
+                    else if (text.includes('@')) matched = true; // Fallback
                 }
             }
 
@@ -262,6 +294,8 @@ const handleNotesCommand = async (userId, normalizedMsg) => {
         const { jid, text } = normalizedMsg;
         if (!text.startsWith('!')) return false;
 
+        logger.info(`Checking Notes Command: '${text}' in ${jid} for user ${userId}`);
+
         const parts = text.split(' ');
         const command = parts[0].toLowerCase();
         const args = parts.slice(1).join(' ').trim();
@@ -361,6 +395,65 @@ const handleNotesCommand = async (userId, normalizedMsg) => {
     } catch (error) {
         logger.error(`Error in handleNotesCommand: ${error.message}`);
         await messageAdapter.sendMessage(normalizedMsg, '❌ Terjadi kesalahan saat memproses catatan.');
+        return true;
+    }
+};
+
+const handleImageCommand = async (userId, normalizedMsg) => {
+    try {
+        const { text } = normalizedMsg;
+        if (!text.toLowerCase().startsWith('!image ')) return false;
+
+        const prompt = text.substring(7).trim();
+        if (!prompt) {
+            await messageAdapter.sendMessage(normalizedMsg, '❌ Masukkan deskripsi gambar. Contoh: !image ksatria di atas naga');
+            return true;
+        }
+
+        // 1. Check Credits
+        const hasCredits = await creditService.checkCredits(userId);
+        if (!hasCredits) {
+            await messageAdapter.sendMessage(normalizedMsg, '⚠️ Saldo (Credits) Anda tidak cukup untuk generate gambar.');
+            return true;
+        }
+
+        // 2. Notify processing (optional but better UX for long generation)
+        await messageAdapter.sendMessage(normalizedMsg, '🎨 Sedang melukis gambar Anda, mohon tunggu sebentar...');
+
+        // 3. Fetch User AI Config
+        const user = await prisma.user.findUnique({
+            where: { id: userId },
+            select: { aiApiKey: true, aiProvider: true, isImageEnabled: true, aiImageProvider: true, aiImageApiKey: true }
+        });
+
+        if (user && user.isImageEnabled !== true) {
+            await messageAdapter.sendMessage(normalizedMsg, '⚠️ Fitur pembuatan gambar dinonaktifkan oleh pemilik sistem.');
+            return true;
+        }
+
+        // 4. Generate Image
+        const result = await aiService.generateImage(user?.aiImageApiKey || user?.aiApiKey, user?.aiImageProvider || user?.aiProvider || 'openai', prompt);
+
+        if (result && (result.url || result.buffer)) {
+            // 5. Build Caption
+            let caption = `🎨 *AI Image Generation*\nPrompt: ${prompt}`;
+            if (result.refinedPrompt) {
+                caption += `\n\n✨ *Expanded Prompt (Gemini):*\n_${result.refinedPrompt}_`;
+            }
+
+            // 6. Send Image
+            await messageAdapter.sendMessage(normalizedMsg, {
+                image: result.buffer ? { buffer: result.buffer } : { url: result.url },
+                caption: caption
+            }, userId);
+        } else {
+            await messageAdapter.sendMessage(normalizedMsg, '❌ Gagal membuat gambar. Coba lagi nanti.');
+        }
+
+        return true;
+    } catch (error) {
+        logger.error(`Error in handleImageCommand: ${error.message}`);
+        await messageAdapter.sendMessage(normalizedMsg, '❌ Terjadi kesalahan teknis saat membuat gambar.');
         return true;
     }
 };

@@ -23,7 +23,8 @@ const Games = () => {
         guessMax: 100,
         guessMaxAttempts: 5,
         aiTriviaTopic: '',
-        aiTriviaCount: 5
+        aiTriviaCount: 5,
+        aiAutoAdvanceInterval: 30
     });
 
     const [error, setError] = useState(null);
@@ -55,6 +56,7 @@ const Games = () => {
                 isActive: game.isActive,
                 triviaQuestions: game.type === 'TRIVIA' ? config.questions : [{ question: '', options: ['', '', '', ''], answer: '' }],
                 aiSystemPrompt: game.type === 'AI_RPG' ? config.systemPrompt : '',
+                aiAutoAdvanceInterval: game.type === 'AI_RPG' ? (config.autoAdvanceInterval / 1000 || 30) : 30,
                 guessMin: game.type === 'GUESS_NUMBER' ? config.min : 1,
                 guessMax: game.type === 'GUESS_NUMBER' ? config.max : 100,
                 guessMaxAttempts: game.type === 'GUESS_NUMBER' ? config.maxAttempts : 5,
@@ -75,7 +77,8 @@ const Games = () => {
                 guessMax: 100,
                 guessMaxAttempts: 5,
                 aiTriviaTopic: '',
-                aiTriviaCount: 5
+                aiTriviaCount: 5,
+                aiAutoAdvanceInterval: 30
             });
         }
         setError(null);
@@ -106,7 +109,11 @@ const Games = () => {
                 setError('System prompt RPG tidak boleh kosong.');
                 return;
             }
-            config = { systemPrompt: form.aiSystemPrompt, openingScene: "Petualangan dimulai..." };
+            config = {
+                systemPrompt: form.aiSystemPrompt,
+                openingScene: "Petualangan dimulai...",
+                autoAdvanceInterval: parseInt(form.aiAutoAdvanceInterval) * 1000
+            };
         } else if (form.type === 'GUESS_NUMBER') {
             config = { min: parseInt(form.guessMin), max: parseInt(form.guessMax), maxAttempts: parseInt(form.guessMaxAttempts) };
         }
@@ -379,6 +386,19 @@ const Games = () => {
                                             Gunakan command <b>!lanjut</b> untuk meminta AI mengevaluasi semua obrolan dan melanjutkan cerita.
                                         </p>
                                         <textarea required value={form.aiSystemPrompt} onChange={(e) => setForm({ ...form, aiSystemPrompt: e.target.value })} className="w-full p-3 border border-gray-300 rounded h-40 focus:ring-sisia-primary" placeholder="Cth: Tema Sci-Fi Horror di kapal luar angkasa yang terbengkalai. Pemain harus bertahan hidup dari serangan alien."></textarea>
+
+                                        <div className="mt-4">
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">Interval Auto-Lanjut (Detik)</label>
+                                            <input
+                                                type="number"
+                                                min="0"
+                                                value={form.aiAutoAdvanceInterval}
+                                                onChange={(e) => setForm({ ...form, aiAutoAdvanceInterval: e.target.value })}
+                                                className="w-32 p-2 border border-gray-300 rounded focus:ring-sisia-primary"
+                                                placeholder="30"
+                                            />
+                                            <p className="text-xs text-gray-500 mt-1">Isi 0 jika ingin mematikan fitur auto-lanjut. Default: 30 detik.</p>
+                                        </div>
                                     </div>
                                 )}
 

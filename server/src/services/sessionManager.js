@@ -1,4 +1,4 @@
-import makeWASocket, { useMultiFileAuthState, DisconnectReason, Browsers, fetchLatestBaileysVersion } from '@whiskeysockets/baileys';
+import makeWASocket, { useMultiFileAuthState, DisconnectReason, Browsers, fetchLatestBaileysVersion, makeCacheableSignalKeyStore } from '@whiskeysockets/baileys';
 import { prisma } from '../prisma.js';
 import { logger } from '../config/logger.js';
 import fs from 'fs';
@@ -27,11 +27,22 @@ export const startSession = async (sessionId) => {
     logger.info(`Using WA version v${version.join('.')}, isLatest: ${isLatest}`);
 
     const sock = makeWASocket({
-        auth: state,
+        auth: {
+            creds: state.creds,
+            keys: makeCacheableSignalKeyStore(state.keys, logger),
+        },
         version,
         printQRInTerminal: false,
-        browser: Browsers.ubuntu('Chrome'),
-        syncFullHistory: false
+        browser: ['Wabot', sessionId, '1.0.0'], // UNIQUE browser identity per session name
+        syncFullHistory: false, // Must be false for WA Business to prevent 405 constraint
+        generateHighQualityLinkPreview: true,
+        markOnlineOnConnect: true,
+        keepAliveIntervalMs: 30000, // Slightly higher interval for better stability
+        getMessage: async (key) => {
+            return {
+                conversation: 'Wabot System'
+            };
+        }
     });
 
     sessions.set(sessionId, sock);
@@ -58,15 +69,27 @@ export const startSession = async (sessionId) => {
             const statusCode = (lastDisconnect?.error)?.output?.statusCode;
             const isLoggedOut = Number(statusCode) === DisconnectReason.loggedOut;
             const isConflict = Number(statusCode) === 405; // 405 means Conflict/Stream Errored
+            const isUnauthorized = Number(statusCode) === 401;
 
-            // Do not auto-reconnect if logged out or if there is a conflict.
-            const shouldReconnect = !isLoggedOut && !isConflict;
+            // Do not auto-reconnect if logged out
+            const shouldReconnect = !isLoggedOut;
 
             logger.error(`Session ${sessionId} closed. StatusCode: ${statusCode}, Error: ${lastDisconnect?.error?.message}. Reconnecting: ${shouldReconnect}`);
 
             // Always remove the closed session from memory
             sessions.delete(sessionId);
             activeQRs.delete(sessionId);
+
+            if (isUnauthorized || isLoggedOut) {
+                logger.warn(`Session ${sessionId} is corrupted or unauthorized (${statusCode}). Cleaning up session directory...`);
+                try {
+                    const sessionDir = path.join('sessions', sessionId);
+                    fs.rmSync(sessionDir, { recursive: true, force: true });
+                    logger.info(`Cleanup for ${sessionId} complete.`);
+                } catch (e) {
+                    logger.error(`Cleanup for ${sessionId} failed:`, e);
+                }
+            }
 
             if (shouldReconnect) {
                 setTimeout(() => {

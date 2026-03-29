@@ -59,7 +59,38 @@ export const sendMessage = async (normalizedMsg, content, userId = null) => {
             if (typeof content === 'object' && content.image) {
                 // Handle image sending for Telegram
                 const caption = content.caption || textToSend;
-                await bot.sendPhoto(jid, content.image.url ? content.image.url : content.image, { caption });
+                let photo = content.image.buffer || content.image.url || content.image;
+
+                // Robust check: if photo is a URL, try to fetch it as buffer to avoid Telegram 400 errors
+                if (typeof photo === 'string' && photo.startsWith('http')) {
+                    try {
+                        const response = await fetch(photo);
+                        if (response.ok) {
+                            const arrayBuffer = await response.arrayBuffer();
+                            photo = Buffer.from(arrayBuffer);
+                        }
+                    } catch (fetchErr) {
+                        logger.warn(`Failed to fetch image URL for Telegram: ${fetchErr.message}. Sending URL directly.`);
+                    }
+                }
+
+                if (photo) {
+                    try {
+                        if (Buffer.isBuffer(photo)) {
+                            logger.info(`Sending image buffer to Telegram for JID ${jid}`);
+                            await bot.sendPhoto(jid, photo, { caption }, { filename: 'image.png', contentType: 'image/png' });
+                        } else {
+                            logger.info(`Sending image URL to Telegram for JID ${jid}: ${typeof photo === 'string' ? photo.substring(0, 50) : 'object'}`);
+                            await bot.sendPhoto(jid, photo, { caption });
+                        }
+                    } catch (photoError) {
+                        logger.error(`Failed to send Telegram photo: ${photoError.message}. Falling back to text.`);
+                        // Send just the text/caption if the image fails
+                        await bot.sendMessage(jid, (caption || textToSend || "🎨 Image Generation") + "\n\n(⚠️ Gagal mengirim gambar, silakan cek log sistem/provider)");
+                    }
+                } else if (textToSend) {
+                    await bot.sendMessage(jid, textToSend);
+                }
             } else if (textToSend) {
                 await bot.sendMessage(jid, textToSend);
             }

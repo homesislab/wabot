@@ -101,6 +101,9 @@ model User {
   aiModel       String? // e.g. gemini-1.5-flash, gpt-4
   aiBriefing    String?        @db.Text
   isAiEnabled   Boolean        @default(false)
+  isImageEnabled Boolean       @default(true)
+  aiImageProvider String       @default("hercai") // openai, hercai, pollinations, gemini
+  aiImageApiKey   String?      @db.Text
   isActive      Boolean        @default(true)
   createdAt     DateTime       @default(now())
   contacts      Contact[]

@@ -32,10 +32,29 @@ global.io = io;
 import { initScheduler } from './src/services/schedulerService.js';
 import { initSessions } from './src/services/sessionManager.js';
 import { initializeBots } from './src/services/telegramService.js';
+import { initGameAutoAdvance } from './src/services/gameService.js';
 
 httpServer.listen(port, async () => {
     logger.info(`Server running on port ${port}`);
     await initSessions();
     await initScheduler();
     await initializeBots();
+    initGameAutoAdvance();
 });
+
+// Clean shutdown signal handling
+const gracefulShutdown = async (signal) => {
+    logger.info(`${signal} received. Shutting down gracefully...`);
+    try {
+        const { stopAllBots } = await import('./src/services/telegramService.js');
+        stopAllBots();
+        logger.info("Cleanup complete. Exiting.");
+        process.exit(0);
+    } catch (e) {
+        logger.error(`Error during shutdown: ${e.message}`);
+        process.exit(1);
+    }
+};
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));

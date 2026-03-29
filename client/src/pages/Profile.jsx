@@ -14,7 +14,7 @@ const Profile = () => {
     const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
 
     // Edit Profile State
-    const [editForm, setEditForm] = useState({ email: '', phone: '', aiProvider: 'openai', aiModel: '', aiApiKey: '', isAiEnabled: false });
+    const [editForm, setEditForm] = useState({ email: '', phone: '', aiProvider: 'openai', aiModel: '', aiApiKey: '', isAiEnabled: false, isImageEnabled: true, aiImageProvider: 'hercai', aiImageApiKey: '' });
 
     // Change Password State
     const [passwordForm, setPasswordForm] = useState({ currentPassword: '', newPassword: '', confirmNewPassword: '' });
@@ -32,7 +32,9 @@ const Profile = () => {
                 aiProvider: res.data.aiProvider || 'openai',
                 aiModel: res.data.aiModel || '',
                 aiApiKey: res.data.aiApiKey || '',
-                isAiEnabled: res.data.isAiEnabled || false
+                isAiEnabled: res.data.isAiEnabled || false,
+                isImageEnabled: res.data.isImageEnabled ?? true,
+                aiImageProvider: res.data.aiImageProvider || 'hercai'
             });
             if (setUser) setUser(res.data);
         } catch {
@@ -136,7 +138,9 @@ const Profile = () => {
                                 aiProvider: profile?.aiProvider || 'openai',
                                 aiModel: profile?.aiModel || '',
                                 aiApiKey: profile?.aiApiKey || '',
-                                isAiEnabled: profile?.isAiEnabled || false
+                                isAiEnabled: profile?.isAiEnabled || false,
+                                isImageEnabled: profile?.isImageEnabled ?? true,
+                                aiImageProvider: profile?.aiImageProvider || 'hercai'
                             });
                             setModalError('');
                             setIsEditModalOpen(true);
@@ -275,6 +279,17 @@ const Profile = () => {
                             {profile?.aiApiKey ? '● Configured' : '○ Not Configured'}
                         </p>
                     </div>
+                    <div className="md:col-span-2 border-t pt-2">
+                        <p className="text-sm text-gray-500 font-medium mb-1">Image Generation</p>
+                        <div className="flex gap-4">
+                            <span className={`px-2 py-0.5 rounded text-xs font-bold ${profile?.isImageEnabled ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                                {profile?.isImageEnabled ? 'ENABLED' : 'DISABLED'}
+                            </span>
+                            <span className="text-sm text-gray-600">
+                                Default Provider: <span className="font-bold text-sisia-primary capitalize">{profile?.aiImageProvider}</span>
+                            </span>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -320,6 +335,52 @@ const Profile = () => {
                                     </label>
                                 </h4>
                                 <div className={`space-y-4 ${!editForm.isAiEnabled ? 'opacity-50 pointer-events-none' : ''}`}>
+                                    <div className="border border-sisia-primary/10 rounded-xl p-3 bg-sisia-primary/5">
+                                        <div className="flex items-center justify-between mb-3">
+                                            <h5 className="text-sm font-bold text-gray-800">Image Generation Settings</h5>
+                                            <label className="relative inline-flex items-center cursor-pointer">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={editForm.isImageEnabled}
+                                                    onChange={e => setEditForm({ ...editForm, isImageEnabled: e.target.checked })}
+                                                    className="sr-only peer"
+                                                />
+                                                <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-sisia-primary/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-sisia-primary"></div>
+                                            </label>
+                                        </div>
+                                        <div className={`space-y-3 ${!editForm.isImageEnabled ? 'opacity-50 pointer-events-none' : ''}`}>
+                                            <div>
+                                                <label className="block text-xs font-medium text-gray-700 mb-1">Preferred Image Provider</label>
+                                                <select
+                                                    value={editForm.aiImageProvider}
+                                                    onChange={e => setEditForm({ ...editForm, aiImageProvider: e.target.value })}
+                                                    className="w-full px-3 py-1.5 border rounded-lg outline-none focus:ring-2 focus:ring-sisia-primary/20 focus:border-sisia-primary bg-white text-sm"
+                                                >
+                                                    <option value="hercai">Hercai (Free, Fast)</option>
+                                                    <option value="pollinations">Pollinations (Free, Robust)</option>
+                                                    <option value="openai">OpenAI DALL-E (Premium)</option>
+                                                    <option value="gemini">Google Gemini (Auto-Refine)</option>
+                                                </select>
+                                                {(editForm.aiImageProvider === 'openai' || editForm.aiImageProvider === 'gemini') && (
+                                                    <div className="mt-3">
+                                                        <label className="block text-xs font-medium text-gray-700 mb-1">
+                                                            {editForm.aiImageProvider === 'openai' ? 'OpenAI API Key (DALL-E)' : 'Gemini API Key (Refinement)'}
+                                                        </label>
+                                                        <input
+                                                            type="password"
+                                                            value={editForm.aiImageApiKey}
+                                                            onChange={e => setEditForm({ ...editForm, aiImageApiKey: e.target.value })}
+                                                            placeholder="Leave empty to use general key"
+                                                            className="w-full px-3 py-1.5 border rounded-lg outline-none focus:ring-2 focus:ring-sisia-primary/20 focus:border-sisia-primary bg-white text-xs"
+                                                        />
+                                                    </div>
+                                                )}
+                                                <p className="text-[10px] text-gray-500 mt-1 italic">
+                                                    *If primary fails, system automatically tries free alternatives.
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </div>
                                     <div className="grid grid-cols-2 gap-3">
                                         <div>
                                             <label className="block text-sm font-medium text-gray-700 mb-1">Provider</label>

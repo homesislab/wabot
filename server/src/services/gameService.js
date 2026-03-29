@@ -35,6 +35,12 @@ export const handleActiveGame = async (normalizedMsg) => {
 
         if (!activeGame) return false;
 
+        // --- BYPASS SYSTEM COMMANDS ---
+        const systemCommands = ['!catatan', '!simpan', '!hapus', '!kumpulan'];
+        if (systemCommands.some(cmd => text.toLowerCase().startsWith(cmd))) {
+            return false; // Let ruleEngine handle these
+        }
+
         const game = activeGame.game;
         let state = JSON.parse(activeGame.state);
 
@@ -114,6 +120,8 @@ export const handleActiveGame = async (normalizedMsg) => {
 
                         state.roles = parsed.roles || {};
                         state.alivePlayers = [...state.players]; // Everyone starts alive
+                        state.history = ["Latar Cerita:", parsed.scene || config.openingScene || "Petualangan dimulai..."];
+                        state.accumulatedChats = [];
 
                         startMsg = `⚔️ *RPG Dimulai!* ⚔️\n\n`;
 
@@ -389,6 +397,10 @@ async function handleAiRpgInput(activeGame, normalizedMsg, game, state) {
     const config = JSON.parse(game.config);
     const cmd = text.toLowerCase().trim();
 
+    // Ensure state properties exist for robust handling
+    if (!state.history) state.history = [];
+    if (!state.accumulatedChats) state.accumulatedChats = [];
+
     if (cmd === '!lanjut' || cmd === '!next') {
         if (!state.accumulatedChats || state.accumulatedChats.length === 0) {
             await sendGameMessage(normalizedMsg, game.userId, { text: "Belum ada pemain yang melakukan aksi. Kirim chat apa saja sebelum !lanjut." });
@@ -396,98 +408,7 @@ async function handleAiRpgInput(activeGame, normalizedMsg, game, state) {
         }
 
         await sendGameMessage(normalizedMsg, game.userId, { text: "🎲 Game Master sedang memproses cerita berdasarkan aksi kalian..." });
-
-        try {
-            const user = await prisma.user.findUnique({
-                where: { id: game.userId },
-                select: { aiApiKey: true, aiProvider: true, aiModel: true }
-            });
-
-            if (!user?.aiApiKey) {
-                await sendGameMessage(normalizedMsg, game.userId, { text: "Maaf, AI Game Engine sedang offline (API Key tidak diset)." });
-                return;
-            }
-
-            let historyContext = state.history.join("\n");
-            let accumulatedActions = state.accumulatedChats.join("\n");
-
-            let prompt = `Anda adalah Game Master RPG yang tidak kenal ampun namun adil.\n` +
-                `Cerita Sebelumnya:\n${historyContext}\n\n` +
-                `Aksi Para Pemain:\n${accumulatedActions}\n\n` +
-                `Tugas Anda:\n` +
-                `1. Buatkan kelanjutan cerita (scene) yang seru, responsif terhadap setiap aksi aksi pemain.\n` +
-                `2. Tentukan siapa yang GUGUR/TEWAS berdasarkan aksi mereka (jika aksinya bodoh atau sangat berbahaya). Bolehkah tidak ada yang gugur? Boleh. Bolehkah semua gugur? Boleh jika memang pantas.\n` +
-                `3. Tentukan apakah permainan SELESAI (isGameOver=true) misal boss mati, atau semua pemain tewas.\n` +
-                `JAWAB HANYA DALAM FORMAT JSON SEPERTI BERIKUT TANPA MARKDOWN (tanpa \`\`\`json):\n` +
-                `{\n` +
-                `  "scene": "Terjadi ledakan besar setelah Ksatria mencoba memotong kabel merah...",\n` +
-                `  "eliminated": ["nomor1@s.whatsapp.net", "nomor2@s.whatsapp.net"],\n` +
-                `  "isGameOver": false\n` +
-                `}`;
-
-            const tools = await getToolsForUser(game.userId);
-            let aiText = await aiService.generateResponse({
-                apiKey: user.aiApiKey,
-                provider: user.aiProvider || 'openai',
-                modelString: user.aiModel,
-                tools: tools
-            }, config.systemPrompt || "Anda merespons HANYA dalam format JSON murni.", prompt);
-
-            aiText = aiText.replace(/```json/gi, '').replace(/```/g, '').trim();
-            const parsed = JSON.parse(aiText);
-
-            // Update state
-            state.history.push("=== Ronde Lanjut ===");
-            state.history.push(`Aksi Pemain:\n${accumulatedActions}`);
-            state.history.push(`GM:\n${parsed.scene}`);
-
-            if (state.history.length > 20) state.history = state.history.slice(state.history.length - 20);
-
-            // Process eliminations
-            let deadAnnouncements = [];
-            if (parsed.eliminated && Array.isArray(parsed.eliminated)) {
-                for (const dead of parsed.eliminated) {
-                    if (state.alivePlayers.includes(dead)) {
-                        state.alivePlayers = state.alivePlayers.filter(p => p !== dead);
-                        deadAnnouncements.push(dead);
-                    }
-                }
-            }
-
-            // Clear chats for next round
-            state.accumulatedChats = [];
-
-            let finalMessage = `📖 *Cerita Berlanjut:*\n${parsed.scene}\n\n`;
-            let mentions = [];
-
-            if (deadAnnouncements.length > 0) {
-                finalMessage += `☠️ *Pemain Gugur:*\n`;
-                for (const d of deadAnnouncements) {
-                    finalMessage += `- @${formatPlayerName(d)} (${state.roles[d] || 'Unknown'})\n`;
-                    mentions.push(d);
-                }
-                finalMessage += `*Mulai sekarang, pemain yang gugur tidak bisa beraksi lagi.*\n\n`;
-            }
-
-            if (parsed.isGameOver || state.alivePlayers.length === 0) {
-                finalMessage += `🛑 *PERMAINAN SELESAI* 🛑\nTerima kasih telah bermain!`;
-                await sendGameMessage(normalizedMsg, game.userId, { text: finalMessage, mentions });
-                await prisma.activeGame.delete({ where: { id: activeGame.id } });
-            } else {
-                finalMessage += `Silakan sisa pemain (@${state.alivePlayers.map(p => formatPlayerName(p)).join(', @')}) melakukan chat aksi lagi sebelum *!lanjut*.`;
-                mentions.push(...state.alivePlayers);
-
-                await prisma.activeGame.update({
-                    where: { id: activeGame.id },
-                    data: { state: JSON.stringify(state), lastActive: new Date() }
-                });
-                await sendGameMessage(normalizedMsg, game.userId, { text: finalMessage, mentions });
-            }
-
-        } catch (e) {
-            logger.error(`AI RPG Error during !lanjut: ${e.message}`);
-            await sendGameMessage(normalizedMsg, game.userId, { text: "Terjadi kesalahan sistem GM AI. Silakan coba *!lanjut* lagi." });
-        }
+        await advanceAiRpg(activeGame, normalizedMsg, game, state);
     } else {
         // Record chat
         const role = state.roles[participant] || "Unknown Role";
@@ -505,3 +426,201 @@ async function handleAiRpgInput(activeGame, normalizedMsg, game, state) {
         // We do NOT send a reply here, just quietly record it.
     }
 }
+
+async function advanceAiRpg(activeGame, normalizedMsg, game, state) {
+    const config = JSON.parse(game.config);
+
+    // Ensure state properties exist for robust handling
+    if (!state.history) state.history = [];
+    if (!state.accumulatedChats) state.accumulatedChats = [];
+    if (!state.alivePlayers) state.alivePlayers = state.players || [];
+    try {
+        const user = await prisma.user.findUnique({
+            where: { id: game.userId },
+            select: { id: true, aiApiKey: true, aiProvider: true, aiModel: true, isAiEnabled: true, isImageEnabled: true, aiImageProvider: true, aiImageApiKey: true }
+        });
+
+        logger.info(`RPG User AI Settings [User:${game.userId}]: isImageEnabled=${user?.isImageEnabled}(${typeof user?.isImageEnabled}), provider=${user?.aiImageProvider}`);
+
+        if (!user?.aiApiKey) {
+            await sendGameMessage(normalizedMsg, game.userId, { text: "Maaf, AI Game Engine sedang offline (API Key tidak diset)." });
+            return;
+        }
+
+        let historyContext = state.history.join("\n");
+        let accumulatedActions = state.accumulatedChats.join("\n");
+
+        let prompt = `Anda adalah Game Master RPG yang tidak kenal ampun namun adil.\n` +
+            `Cerita Sebelumnya:\n${historyContext}\n\n` +
+            `Aksi Para Pemain:\n${accumulatedActions}\n\n` +
+            `Tugas Anda:\n` +
+            `1. Buatkan kelanjutan cerita (scene) yang seru, responsif terhadap setiap aksi aksi pemain.\n` +
+            `2. Tentukan siapa yang GUGUR/TEWAS berdasarkan aksi mereka (jika aksinya bodoh atau sangat berbahaya). Bolehkah tidak ada yang gugur? Boleh. Bolehkah semua gugur? Boleh jika memang pantas.\n` +
+            `3. Tentukan apakah permainan SELESAI (isGameOver=true) misal boss mati, atau semua pemain tewas.\n` +
+            `4. (Opsional) Jika adegan sangat dramatis atau visualnya penting, tambahkan "imagePrompt" berupa deskripsi visual mendetail dalam Bahasa Inggris.\n` +
+            `JAWAB HANYA DALAM FORMAT JSON SEPERTI BERIKUT TANPA MARKDOWN (tanpa \`\`\`json):\n` +
+            `{\n` +
+            `  "scene": "Terjadi ledakan besar setelah Ksatria mencoba memotong kabel merah...",\n` +
+            `  "imagePrompt": "A large explosion in a steampunk fantasy laboratory, dramatic lighting, high quality digital art",\n` +
+            `  "eliminated": ["nomor1@s.whatsapp.net", "nomor2@s.whatsapp.net"],\n` +
+            `  "isGameOver": false\n` +
+            `}`;
+
+        const tools = await getToolsForUser(game.userId);
+        let aiText = await aiService.generateResponse({
+            apiKey: user.aiApiKey,
+            provider: user.aiProvider || 'openai',
+            modelString: user.aiModel,
+            tools: tools
+        }, config.systemPrompt || "Anda merespons HANYA dalam format JSON murni.", prompt);
+
+        aiText = aiText.replace(/\`\`\`json/gi, '').replace(/\`\`\`/g, '').trim();
+        const parsed = JSON.parse(aiText);
+
+        // --- IMAGE GENERATION ---
+        let imageResult = null;
+        logger.info(`RPG Image Generation Status Check: prompt=${!!parsed.imagePrompt}, enabled_setting=${user.isImageEnabled}`);
+        if (parsed.imagePrompt && user.isImageEnabled === true) {
+            try {
+                imageResult = await aiService.generateImage(user.aiImageApiKey || user.aiApiKey, user.aiImageProvider || user.aiProvider, parsed.imagePrompt);
+            } catch (imgError) {
+                logger.error(`RPG Image Generation Failed: ${imgError.message}`);
+            }
+        }
+
+        // Update state
+        state.history.push("=== Ronde Lanjut ===");
+        state.history.push(`Aksi Pemain:\n${accumulatedActions}`);
+        state.history.push(`GM:\n${parsed.scene}`);
+
+        if (state.history.length > 20) state.history = state.history.slice(state.history.length - 20);
+
+        // Process eliminations
+        let deadAnnouncements = [];
+        if (parsed.eliminated && Array.isArray(parsed.eliminated)) {
+            for (const dead of parsed.eliminated) {
+                if (state.alivePlayers.includes(dead)) {
+                    state.alivePlayers = state.alivePlayers.filter(p => p !== dead);
+                    deadAnnouncements.push(dead);
+                }
+            }
+        }
+
+        // Clear chats for next round
+        state.accumulatedChats = [];
+
+        let finalMessage = `📖 *Cerita Berlanjut (Auto):*\n${parsed.scene}\n\n`;
+        let mentions = [];
+
+        if (deadAnnouncements.length > 0) {
+            finalMessage += `☠️ *Pemain Gugur:*\n`;
+            for (const d of deadAnnouncements) {
+                finalMessage += `- @${formatPlayerName(d)} (${state.roles[d] || 'Unknown'})\n`;
+                mentions.push(d);
+            }
+            finalMessage += `*Mulai sekarang, pemain yang gugur tidak bisa beraksi lagi.*\n\n`;
+        }
+
+        if (parsed.isGameOver || state.alivePlayers.length === 0) {
+            finalMessage += `🛑 *PERMAINAN SELESAI* 🛑\nTerima kasih telah bermain!`;
+            if (imageResult && (imageResult.url || imageResult.buffer)) {
+                const imagePayload = imageResult.buffer ? { buffer: imageResult.buffer } : { url: imageResult.url };
+                await sendGameMessage(normalizedMsg, game.userId, { image: imagePayload, caption: finalMessage, mentions });
+            } else {
+                await sendGameMessage(normalizedMsg, game.userId, { text: finalMessage, mentions });
+            }
+            try {
+                // Check if still exists before deleting to avoid Prisma error
+                const stillExists = await prisma.activeGame.findUnique({ where: { id: activeGame.id } });
+                if (stillExists) {
+                    await prisma.activeGame.delete({ where: { id: activeGame.id } });
+                }
+            } catch (delError) {
+                logger.warn(`Failed to delete game ${activeGame.id}: ${delError.message}`);
+            }
+        } else {
+            finalMessage += `Silakan sisa pemain (@${state.alivePlayers.map(p => formatPlayerName(p)).join(', @')}) melakukan chat aksi lagi sebelum *!lanjut*.`;
+            mentions.push(...state.alivePlayers);
+
+            await prisma.activeGame.update({
+                where: { id: activeGame.id },
+                data: { state: JSON.stringify(state), lastActive: new Date() }
+            });
+
+            if (imageResult && (imageResult.url || imageResult.buffer)) {
+                const imagePayload = imageResult.buffer ? { buffer: imageResult.buffer } : { url: imageResult.url };
+                await sendGameMessage(normalizedMsg, game.userId, { image: imagePayload, caption: finalMessage, mentions });
+            } else {
+                await sendGameMessage(normalizedMsg, game.userId, { text: finalMessage, mentions });
+            }
+        }
+
+    } catch (e) {
+        logger.error(`AI RPG Error during auto-advance: ${e.message}`);
+    }
+}
+
+export const initGameAutoAdvance = () => {
+    logger.info("Initializing Game Auto-Advance Worker (30s interval)");
+    setInterval(async () => {
+        try {
+            const now = new Date();
+            const activeGames = await prisma.activeGame.findMany({
+                include: { game: true }
+            });
+
+            for (const ag of activeGames) {
+                if (ag.game.type !== 'AI_RPG') continue;
+
+                const state = JSON.parse(ag.state);
+                const config = JSON.parse(ag.game.config);
+                const autoAdvanceInterval = (config.autoAdvanceInterval !== undefined) ? config.autoAdvanceInterval : 30000;
+
+                if (autoAdvanceInterval <= 0) continue; // Feature disabled for this game
+
+                const lastActive = new Date(ag.lastActive);
+                const diff = now.getTime() - lastActive.getTime();
+
+                // Log every check for debugging
+                logger.info(`[AUTO-ADVANCE CHECK] ${ag.playerPhone}: diff=${Math.round(diff / 1000)}s, interval=${autoAdvanceInterval / 1000}s, chats=${state.accumulatedChats?.length || 0}`);
+
+                if (diff > autoAdvanceInterval && state.accumulatedChats && state.accumulatedChats.length > 0) {
+                    logger.info(`[AUTO-ADVANCE] Triggering for ${ag.playerPhone}. Inactive for ${Math.round(diff / 1000)}s. Interval set to ${autoAdvanceInterval / 1000}s.`);
+
+                    const isTelegram = ag.sessionId.startsWith('telegram_');
+                    let client = null;
+
+                    try {
+                        if (isTelegram) {
+                            const { getBots } = await import('./telegramService.js');
+                            const botId = parseInt(ag.sessionId.replace('telegram_', ''), 10);
+                            client = getBots()[botId];
+                        } else {
+                            const { getSession } = await import('./sessionManager.js');
+                            client = getSession(ag.sessionId);
+                        }
+                    } catch (e) {
+                        logger.error(`Error resolving client for auto-advance: ${e.message}`);
+                    }
+
+                    if (!client) {
+                        logger.warn(`[AUTO-ADVANCE] Client not found for session ${ag.sessionId}. Skipping.`);
+                        continue;
+                    }
+
+                    const dummyMsg = {
+                        platform: isTelegram ? 'telegram' : 'whatsapp',
+                        sessionId: ag.sessionId,
+                        jid: ag.playerPhone,
+                        participant: ag.playerPhone,
+                        client: client
+                    };
+
+                    await advanceAiRpg(ag, dummyMsg, ag.game, state);
+                }
+            }
+        } catch (error) {
+            logger.error(`Error in Game Auto-Advance worker: ${error.message}`);
+        }
+    }, 15000);
+};
