@@ -3,8 +3,11 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { logger } from '../config/logger.js';
 import { getSession } from '../services/sessionManager.js';
+import { OAuth2Client } from 'google-auth-library';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'supersecretkeychangedinprod';
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
+const googleClient = GOOGLE_CLIENT_ID ? new OAuth2Client(GOOGLE_CLIENT_ID) : null;
 
 export const login = async (req, res) => {
     const { username, password } = req.body;
@@ -13,6 +16,10 @@ export const login = async (req, res) => {
         const user = await prisma.user.findUnique({ where: { username } });
         if (!user) {
             return res.status(400).json({ error: 'Invalid username or password' });
+        }
+
+        if (!user.password) {
+            return res.status(400).json({ error: 'Akun ini terdaftar via Google. Gunakan "Login with Google".' });
         }
 
         const validPassword = await bcrypt.compare(password, user.password);
@@ -33,6 +40,104 @@ export const login = async (req, res) => {
         res.status(500).json({ error: 'Login failed' });
     }
 };
+
+/**
+ * Google OAuth Login
+ * Verify Google ID Token → find or create user → return JWT
+ */
+export const googleLogin = async (req, res) => {
+    const { credential } = req.body; // Google ID token dari frontend
+
+    if (!GOOGLE_CLIENT_ID || !googleClient) {
+        return res.status(503).json({ error: 'Google login belum dikonfigurasi di server' });
+    }
+
+    try {
+        // 1. Verifikasi token Google
+        const ticket = await googleClient.verifyIdToken({
+            idToken: credential,
+            audience: GOOGLE_CLIENT_ID,
+        });
+        const payload = ticket.getPayload();
+        const { sub: googleId, email, name, picture } = payload;
+
+        // 2. Cari user berdasarkan googleId atau email
+        let user = await prisma.user.findFirst({
+            where: { OR: [{ googleId }, { email }] }
+        });
+
+        if (!user) {
+            // 3. Buat user baru (auto-register via Google)
+            const username = (name || email.split('@')[0])
+                .toLowerCase()
+                .replace(/[^a-z0-9]/g, '_')
+                .substring(0, 30);
+
+            // Pastikan username unik
+            const existing = await prisma.user.findUnique({ where: { username } });
+            const finalUsername = existing ? `${username}_${Date.now().toString().slice(-4)}` : username;
+
+            user = await prisma.user.create({
+                data: {
+                    username: finalUsername,
+                    email,
+                    googleId,
+                    googleEmail: email,
+                    googleAvatar: picture,
+                    password: null,
+                    isActive: false, // Perlu aktivasi admin
+                    role: 'USER',
+                    planType: 'PAY_AS_YOU_GO'
+                }
+            });
+
+            // Notifikasi admin
+            try {
+                const adminPhone = process.env.ADMIN_PHONE;
+                if (adminPhone) {
+                    const adminSession = await prisma.session.findFirst({
+                        where: { user: { role: 'ADMIN' }, status: 'CONNECTED' }
+                    });
+                    if (adminSession) {
+                        const sock = getSession(adminSession.id);
+                        if (sock) {
+                            const jid = adminPhone.includes('@') ? adminPhone : `${adminPhone}@s.whatsapp.net`;
+                            await sock.sendMessage(jid, {
+                                text: `*New Google Login!*\n\nUsername: ${finalUsername}\nEmail: ${email}\nName: ${name}\n\nPlease activate this user from the dashboard.`
+                            });
+                        }
+                    }
+                }
+            } catch (e) { /* ignore notify error */ }
+        } else {
+            // Update googleId & avatar jika belum ada
+            if (!user.googleId) {
+                await prisma.user.update({
+                    where: { id: user.id },
+                    data: { googleId, googleEmail: email, googleAvatar: picture }
+                });
+            }
+        }
+
+        if (!user.isActive) {
+            return res.status(403).json({ error: 'Akun belum diaktifkan. Hubungi admin untuk aktivasi.' });
+        }
+
+        const token = jwt.sign({ id: user.id, username: user.username, role: user.role }, JWT_SECRET, { expiresIn: '24h' });
+        res.json({
+            token,
+            role: user.role,
+            username: user.username,
+            credits: user.credits,
+            planType: user.planType,
+            googleAvatar: user.googleAvatar
+        });
+    } catch (error) {
+        logger.error(`[GoogleLogin] ${error.message}`);
+        res.status(401).json({ error: 'Token Google tidak valid atau kedaluwarsa' });
+    }
+};
+
 
 export const register = async (req, res) => {
     const { username, password, role, email, phone, planType } = req.body;

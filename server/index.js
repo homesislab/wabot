@@ -33,10 +33,12 @@ import { initScheduler, initAutoRetryJob } from './src/services/schedulerService
 import { initSessions } from './src/services/sessionManager.js';
 import { initializeBots } from './src/services/telegramService.js';
 import { initGameAutoAdvance } from './src/services/gameService.js';
+import { seedStaticApps } from './src/apps/seedStaticApps.js';
 
 httpServer.listen(port, async () => {
     logger.info(`Server running on port ${port}`);
     await initSessions();
+    await seedStaticApps(1);  // Seed Tajwid & Zakat ke DB jika belum ada
     await initScheduler();
     initAutoRetryJob();
     await initializeBots();

@@ -1,19 +1,73 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate, Navigate } from 'react-router-dom';
 import { User, Lock, ArrowRight, ShieldCheck } from 'lucide-react';
+import api from '../api';
+
+const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 
 const Login = () => {
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
-    const { login, user } = useAuth();
+    const [googleLoading, setGoogleLoading] = useState(false);
+    const { login, loginWithToken, user } = useAuth();
     const navigate = useNavigate();
-
-
+    const googleBtnRef = useRef(null);
 
     if (user) return <Navigate to="/app" />;
 
+    // ─── Google Identity Services ───────────────────────
+    useEffect(() => {
+        if (!GOOGLE_CLIENT_ID) return;
+
+        const initGoogle = () => {
+            if (!window.google) return;
+            window.google.accounts.id.initialize({
+                client_id: GOOGLE_CLIENT_ID,
+                callback: handleGoogleCallback,
+                auto_select: false,
+                cancel_on_tap_outside: true,
+            });
+            if (googleBtnRef.current) {
+                window.google.accounts.id.renderButton(googleBtnRef.current, {
+                    theme: 'outline',
+                    size: 'large',
+                    width: googleBtnRef.current.offsetWidth || 380,
+                    text: 'signin_with',
+                    shape: 'rectangular',
+                    logo_alignment: 'left',
+                });
+            }
+        };
+
+        if (window.google) {
+            initGoogle();
+        } else {
+            const script = document.createElement('script');
+            script.src = 'https://accounts.google.com/gsi/client';
+            script.async = true;
+            script.defer = true;
+            script.onload = initGoogle;
+            document.head.appendChild(script);
+        }
+    }, []);
+
+    const handleGoogleCallback = async (response) => {
+        setGoogleLoading(true);
+        setError('');
+        try {
+            const res = await api.post('/auth/google', { credential: response.credential });
+            loginWithToken(res.data);
+            navigate('/app');
+        } catch (err) {
+            setError(err.response?.data?.error || 'Login Google gagal');
+        } finally {
+            setGoogleLoading(false);
+        }
+    };
+
+    // ─── Username/Password Login ──────────────────────
     const handleSubmit = async (e) => {
         e.preventDefault();
         setError('');
@@ -27,7 +81,7 @@ const Login = () => {
 
     return (
         <div className="min-h-screen flex bg-bone-white font-sans text-gray-800">
-            {/* Left Side - Branding (Desktop only) */}
+            {/* Left Side - Branding */}
             <div className="hidden lg:flex lg:w-1/2 bg-sisia-dark relative overflow-hidden flex-col justify-between p-12 text-white">
                 <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-br from-sisia-primary/20 to-transparent pointer-events-none"></div>
                 <div className="absolute -right-24 -bottom-24 w-96 h-96 bg-sisia-primary/30 rounded-full blur-3xl"></div>
@@ -53,9 +107,7 @@ const Login = () => {
                 <div className="w-full max-w-md space-y-8">
                     <div className="text-center lg:text-left">
                         <div className="flex justify-center lg:hidden mb-6">
-                            <div className="relative z-10 flex items-center gap-3">
-                                <span className="text-2xl font-bold tracking-tight text-sisia-primary">SISIA</span>
-                            </div>
+                            <span className="text-2xl font-bold tracking-tight text-sisia-primary">SISIA</span>
                         </div>
                         <h2 className="text-3xl font-bold tracking-tight text-sisia-dark">Welcome back</h2>
                         <p className="mt-2 text-gray-500">Please enter your credentials to access the dashboard.</p>
@@ -68,6 +120,33 @@ const Login = () => {
                         </div>
                     )}
 
+                    {/* Google Login Button */}
+                    {GOOGLE_CLIENT_ID && (
+                        <div className="space-y-3">
+                            <div
+                                ref={googleBtnRef}
+                                className="w-full"
+                                style={{ minHeight: 44 }}
+                            />
+                            {googleLoading && (
+                                <p className="text-center text-sm text-gray-500 animate-pulse">
+                                    Memproses login Google...
+                                </p>
+                            )}
+
+                            {/* Divider */}
+                            <div className="relative my-4">
+                                <div className="absolute inset-0 flex items-center">
+                                    <div className="w-full border-t border-gray-200" />
+                                </div>
+                                <div className="relative flex justify-center text-sm">
+                                    <span className="bg-white px-3 text-gray-400 font-medium">atau</span>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Username/Password Form */}
                     <form onSubmit={handleSubmit} className="space-y-6">
                         <div className="space-y-2">
                             <label className="text-sm font-medium text-gray-700 ml-1">Username</label>

@@ -14,7 +14,9 @@ services:
       - /etc/timezone:/etc/timezone:ro
     environment:
       - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=${REDIS_URL}
       - JWT_SECRET=${JWT_SECRET}
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
       - PORT=3002
       - TZ=Asia/Jakarta
     restart: always
@@ -27,6 +29,7 @@ services:
       args:
         VITE_ADMIN_PHONE: "${VITE_ADMIN_PHONE}"
         VITE_ADMIN_EMAIL: "${VITE_ADMIN_EMAIL}"
+        VITE_GOOGLE_CLIENT_ID: "${GOOGLE_CLIENT_ID}"
     container_name: wabot-frontend
     ports:
       - "8002:80"

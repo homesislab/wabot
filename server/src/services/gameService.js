@@ -35,16 +35,25 @@ export const handleActiveGame = async (normalizedMsg) => {
 
         if (!activeGame) return false;
 
-        // --- BYPASS SYSTEM COMMANDS ---
-        const systemCommands = ['!catatan', '!simpan', '!hapus', '!kumpulan'];
-        if (systemCommands.some(cmd => text.toLowerCase().startsWith(cmd))) {
-            return false; // Let ruleEngine handle these
+        // Ambil teks dengan aman
+        const cmdText = (text || '').toLowerCase().trim();
+
+        // --- BYPASS SYSTEM COMMANDS & MINI APPS ---
+        // Biarkan command bot/app (seperti !tajwid, !zakat, !simpan) lewat, kecuali command game
+        if (cmdText.startsWith('!') && !['!quit', '!keluar', '!join', '!start'].includes(cmdText)) {
+            return false; // Let ruleEngine/AppRouter handle these
+        }
+
+        // --- BYPASS MEDIA MESSAGES ---
+        // Game engine hanya butuh input teks. Voice note/gambar (tanpa caption) dibypass ke AppRouter
+        if (!cmdText) {
+            return false;
         }
 
         const game = activeGame.game;
         let state = JSON.parse(activeGame.state);
 
-        if (text.toLowerCase() === '!quit' || text.toLowerCase() === '!keluar') {
+        if (cmdText === '!quit' || cmdText === '!keluar') {
             await sendGameMessage(normalizedMsg, game.userId, { text: `Berhenti bermain ${game.name}. Sampai jumpa!` });
             await prisma.activeGame.delete({ where: { id: activeGame.id } });
             return true;
@@ -52,8 +61,7 @@ export const handleActiveGame = async (normalizedMsg) => {
 
         // --- LOBBY PHASE INTERCEPTION ---
         if (state.status === 'LOBBY') {
-            const cmd = text.toLowerCase().trim();
-            if (cmd === '!join') {
+            if (cmdText === '!join') {
                 if (!state.players.includes(participant)) {
                     state.players.push(participant);
                     await prisma.activeGame.update({
@@ -71,7 +79,7 @@ export const handleActiveGame = async (normalizedMsg) => {
                     });
                 }
                 return true;
-            } else if (cmd === '!start') {
+            } else if (cmdText === '!start') {
                 if (state.players.length === 0) {
                     await sendGameMessage(normalizedMsg, game.userId, { text: "⚠️ Minimal 1 pemain harus !join sebelum !start." });
                     return true;

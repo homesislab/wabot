@@ -7,30 +7,36 @@ import { getToolsForUser } from './toolManager.js';
 import { fixJsonString } from '../utils/jsonUtils.js';
 import * as gameService from './gameService.js';
 import * as messageAdapter from './messageAdapter.js';
-
-const processedMessages = new Set();
+import { redis } from '../config/redis.js';
+import { messagesReceivedTotal, rulesTriggeredTotal, aiGenerationsTotal, apiCallsTotal, deduplicatedMessagesTotal } from '../config/metrics.js';
+import { route } from '../apps/AppRouter.js';
+import { executeApp } from '../apps/AppExecutor.js';
+import { getRegistryForUser } from '../apps/AppRegistry.js';
+import { setAppSession, getAppSession, clearAppSession } from '../apps/AppSessionManager.js';
 
 export const processMessage = async (normalizedMsg) => {
     try {
+        messagesReceivedTotal.inc();
         const { platform, sessionId, participant, jid, text, client, rawMessage } = normalizedMsg;
-        if (!text) return;
 
-        // Deduplication using message ID
+        // Cek apakah ini voice note (audio)
+        const isVoiceNote = rawMessage?.message?.audioMessage?.ptt === true;
+
+        // Hanya skip jika teks kosong DAN bukan voice note
+        if (!text && !isVoiceNote) return;
+
+        // Deduplication using message ID (Redis instead of memory Set)
         // Note: For Telegram, message_id is unique only within a chat, so we use platform:sessionId:msgId
         const rawId = platform === 'telegram' ? rawMessage?.message_id?.toString() : rawMessage?.key?.id;
         const msgId = rawId ? `${platform}:${sessionId}:${rawId}` : null;
 
         if (msgId) {
-            if (processedMessages.has(msgId)) {
+            const isNewMessage = await redis.set(`dedup:${msgId}`, '1', 'NX', 'EX', 3600); // 1 hour TTL
+            if (!isNewMessage) {
+                deduplicatedMessagesTotal.inc();
                 logger.info(`Duplicate message ${msgId} ignored`);
                 return true;
             }
-            processedMessages.add(msgId);
-        }
-        // Keep cache small (e.g., last 100 messages)
-        if (processedMessages.size > 100) {
-            const firstItem = processedMessages.values().next().value;
-            processedMessages.delete(firstItem);
         }
 
         logger.info(`Processing message ${msgId} from ${participant} in ${jid}`);
@@ -74,6 +80,19 @@ export const processMessage = async (normalizedMsg) => {
         if (imageHandled) {
             return true; // Stop processing rules
         }
+
+        // 5. Dispatch ke App Framework via AppRouter + AppExecutor
+        // - AppRouter: cari manifest yang cocok (async — bisa check Redis session)
+        // - AppExecutor: validasi → inject context → jalankan handler
+        const userRegistry = await getRegistryForUser(userId);
+        const { manifest: matchedManifest, phase } = await route(normalizedMsg, userRegistry, userId);
+        if (matchedManifest) {
+            await executeApp(matchedManifest, normalizedMsg, userId, phase);
+            return true; // Stop — jangan proses Auto Reply rules
+        }
+
+        // Jika voice note tapi tidak ada app yang handle, stop di sini
+        if (isVoiceNote) return false;
 
         const rules = await prisma.rule.findMany({
             where: {
@@ -133,6 +152,7 @@ export const processMessage = async (normalizedMsg) => {
 
             if (matched) {
                 logger.info(`Rule ${rule.id} matched for session ${sessionId}`);
+                rulesTriggeredTotal.inc({ action_type: rule.actionType });
                 executeAction(rule, normalizedMsg);
                 return true;
             }
@@ -262,6 +282,7 @@ const executeAction = async (rule, normalizedMsg) => {
             }
 
             const response = await fetch(url, options); // Use dynamic URL
+            apiCallsTotal.inc({ method: rule.apiMethod || 'POST' });
 
             const data = await response.json();
             logger.info(`Rule ${rule.id} API executed to ${url}. Status: ${response.status}`);
@@ -316,6 +337,7 @@ const executeAction = async (rule, normalizedMsg) => {
             }, rule.responseContent, userMessage);
 
             if (response) {
+                aiGenerationsTotal.inc({ provider: user.aiProvider || 'openai', type: 'text' });
                 if (rule.responseMediaUrl) {
                     await messageAdapter.sendMessage(normalizedMsg, {
                         image: { url: rule.responseMediaUrl },
@@ -330,6 +352,29 @@ const executeAction = async (rule, normalizedMsg) => {
             }
         } catch (error) {
             logger.error(`Rule ${rule.id} AI execution failed: ${error.message}`);
+        }
+    } else if (rule.actionType === 'ACTIVATE_MINI_APP' && rule.miniAppId) {
+        try {
+            // Cari manifest app yang dimaksud
+            const userRegistry = await getRegistryForUser(rule.userId);
+            const manifest = userRegistry.find(m => m.id === rule.miniAppId);
+
+            if (!manifest) {
+                logger.warn(`Rule ${rule.id}: Mini App '${rule.miniAppId}' not found in registry`);
+                return;
+            }
+
+            // Set Redis session untuk user+contact ini
+            await setAppSession(rule.userId, normalizedMsg.participant || jid, rule.miniAppId);
+
+            // Kirim pesan aktivasi dari manifest
+            const activationMsg = manifest.activationMessage ||
+                `✅ *${manifest.icon || ''} ${manifest.name}* siap!\n\nSilahkan ikuti instruksi selanjutnya. Sesi aktif 5 menit.`;
+
+            await messageAdapter.sendMessage(normalizedMsg, { text: activationMsg }, rule.userId);
+            logger.info(`Rule ${rule.id}: Activated Mini App '${rule.miniAppId}' for ${jid}`);
+        } catch (error) {
+            logger.error(`Rule ${rule.id} ACTIVATE_MINI_APP failed: ${error.message}`);
         }
     }
 };
@@ -436,6 +481,27 @@ const handleNotesCommand = async (userId, normalizedMsg) => {
             return true;
         }
 
+        if (command === '!stop' || command === '!batal') {
+            const contactJid = normalizedMsg.participant || jid;
+            const activeAppId = await getAppSession(userId, contactJid);
+
+            if (activeAppId) {
+                await clearAppSession(userId, contactJid);
+                // Ambil nama app dari registry jika bisa
+                const userRegistry = await getRegistryForUser(userId);
+                const manifest = userRegistry.find(m => m.id === activeAppId);
+                const appName = manifest ? `${manifest.icon || ''} ${manifest.name}` : activeAppId;
+                await messageAdapter.sendMessage(normalizedMsg, {
+                    text: `⏹️ Sesi *${appName}* telah dihentikan.\n\nKetik perintah kembali jika ingin menggunakannya lagi.`
+                }, userId);
+            } else {
+                await messageAdapter.sendMessage(normalizedMsg, {
+                    text: `ℹ️ Tidak ada sesi Mini App yang sedang aktif.`
+                }, userId);
+            }
+            return true;
+        }
+
         return false;
     } catch (error) {
         logger.error(`Error in handleNotesCommand: ${error.message}`);
@@ -480,6 +546,7 @@ const handleImageCommand = async (userId, normalizedMsg) => {
         const result = await aiService.generateImage(user?.aiImageApiKey || user?.aiApiKey, user?.aiImageProvider || user?.aiProvider || 'openai', prompt);
 
         if (result && (result.url || result.buffer)) {
+            aiGenerationsTotal.inc({ provider: user?.aiImageProvider || user?.aiProvider || 'openai', type: 'image' });
             // 5. Build Caption
             let caption = `🎨 *AI Image Generation*\nPrompt: ${prompt}`;
             if (result.refinedPrompt) {

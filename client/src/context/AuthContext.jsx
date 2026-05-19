@@ -34,10 +34,23 @@ export const AuthProvider = ({ children }) => {
         return res.data;
     };
 
+    // Untuk Google OAuth — token sudah ada dari response
+    const loginWithToken = (data) => {
+        const { token, role, username } = data;
+        localStorage.setItem('token', token);
+        localStorage.setItem('role', role);
+        localStorage.setItem('username', username);
+        setUser(data);
+    };
+
     const logout = () => {
         localStorage.removeItem('token');
         localStorage.removeItem('role');
         localStorage.removeItem('username');
+        // Sign out dari Google jika ada
+        if (window.google?.accounts?.id) {
+            window.google.accounts.id.disableAutoSelect();
+        }
         setUser(null);
     };
 
@@ -46,7 +59,7 @@ export const AuthProvider = ({ children }) => {
     }
 
     return (
-        <AuthContext.Provider value={{ user, login, logout }}>
+        <AuthContext.Provider value={{ user, setUser, login, loginWithToken, logout }}>
             {children}
         </AuthContext.Provider>
     );

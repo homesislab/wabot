@@ -38,6 +38,7 @@ import credentialRoutes from './routes/credentialRoutes.js';
 import gameRoutes from './routes/gameRoutes.js';
 import noteRoutes from './routes/noteRoutes.js';
 import telegramBotRoutes from './routes/telegramBotRoutes.js';
+import appsRoutes from './routes/appsRoutes.js';
 
 app.use('/api/auth', authRoutes);
 
@@ -55,6 +56,7 @@ app.use('/api/credentials', authenticateToken, credentialRoutes);
 app.use('/api/games', authenticateToken, gameRoutes);
 app.use('/api/notes', authenticateToken, noteRoutes);
 app.use('/api/telegram-bots', authenticateToken, telegramBotRoutes);
+app.use('/api/apps', authenticateToken, appsRoutes);
 
 
 import uploadRoutes from './routes/uploadRoutes.js';

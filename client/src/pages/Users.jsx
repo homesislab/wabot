@@ -24,11 +24,31 @@ const Users = () => {
         planExpiresAt: '',
         aiApiKey: '',
         aiProvider: 'openai',
+        aiModel: '',
         aiBriefing: '',
         isAiEnabled: false,
         isSchedulerEnabled: true,
         isAutoRetryEnabled: true
     });
+
+    // Model options per provider
+    const AI_MODELS = {
+        openai: [
+            { value: 'gpt-5.5',          label: 'GPT-5.5 (Terbaru, Pro)' },
+            { value: 'gpt-5.4',          label: 'GPT-5.4 (Agents & Pro)' },
+            { value: 'gpt-5.4-mini',     label: 'GPT-5.4 Mini (Cepat & Hemat)' },
+            { value: 'gpt-4o',           label: 'GPT-4o' },
+            { value: 'gpt-4o-mini',      label: 'GPT-4o Mini' },
+            { value: 'gpt-4-turbo',      label: 'GPT-4 Turbo' },
+            { value: 'gpt-3.5-turbo',   label: 'GPT-3.5 Turbo (Paling Hemat)' },
+        ],
+        gemini: [
+            { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash (Terbaru)' },
+            { value: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash' },
+            { value: 'gemini-1.5-pro',   label: 'Gemini 1.5 Pro (Terbaik)' },
+            { value: 'gemini-1.5-flash', label: 'Gemini 1.5 Flash (Cepat)' },
+        ],
+    };
 
     const { user: currentUser } = useAuth();
 
@@ -137,6 +157,7 @@ const Users = () => {
             planExpiresAt: user.planExpiresAt || '',
             aiApiKey: user.aiApiKey || '',
             aiProvider: user.aiProvider || 'openai',
+            aiModel: user.aiModel || '',
             aiBriefing: user.aiBriefing || '',
             isAiEnabled: user.isAiEnabled || false,
             isSchedulerEnabled: user.isSchedulerEnabled ?? true,
@@ -491,18 +512,39 @@ const Users = () => {
                                     </label>
                                 </div>
 
-                                <div className={`space-y-4 transition-all duration-300 ${settingsData.isAiEnabled ? 'opacity-100 max-h-[500px]' : 'opacity-40 pointer-events-none max-h-0 overflow-hidden'}`}>
+                                <div className={`space-y-4 transition-all duration-300 ${settingsData.isAiEnabled ? 'opacity-100 max-h-[600px]' : 'opacity-40 pointer-events-none max-h-0 overflow-hidden'}`}>
+                                    {/* Provider */}
                                     <div>
                                         <label className="block text-sm font-medium text-gray-700 mb-1">AI Provider</label>
                                         <select
                                             className="w-full border p-2 rounded-lg outline-none focus:ring-2 focus:ring-sisia-primary"
                                             value={settingsData.aiProvider}
-                                            onChange={e => setSettingsData({ ...settingsData, aiProvider: e.target.value })}
+                                            onChange={e => setSettingsData({ ...settingsData, aiProvider: e.target.value, aiModel: '' })}
                                         >
-                                            <option value="openai">OpenAI (GPT-4o mini)</option>
-                                            <option value="gemini">Google Gemini (2.5 Flash)</option>
+                                            <option value="openai">OpenAI (GPT)</option>
+                                            <option value="gemini">Google Gemini</option>
                                         </select>
                                     </div>
+                                    {/* Model Version */}
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">Model Version</label>
+                                        <select
+                                            className="w-full border p-2 rounded-lg outline-none focus:ring-2 focus:ring-sisia-primary"
+                                            value={settingsData.aiModel}
+                                            onChange={e => setSettingsData({ ...settingsData, aiModel: e.target.value })}
+                                        >
+                                            <option value="">-- Default --</option>
+                                            {(AI_MODELS[settingsData.aiProvider] || []).map(m => (
+                                                <option key={m.value} value={m.value}>{m.label}</option>
+                                            ))}
+                                        </select>
+                                        <p className="text-xs text-gray-400 mt-1">
+                                            {settingsData.aiProvider === 'openai'
+                                                ? 'Default: gpt-4o-mini'
+                                                : 'Default: gemini-1.5-flash'}
+                                        </p>
+                                    </div>
+                                    {/* API Key */}
                                     <div>
                                         <label className="block text-sm font-medium text-gray-700 mb-1">AI API Key</label>
                                         <input
@@ -510,9 +552,15 @@ const Users = () => {
                                             className="w-full border p-2 rounded-lg outline-none focus:ring-2 focus:ring-sisia-primary"
                                             value={settingsData.aiApiKey}
                                             onChange={e => setSettingsData({ ...settingsData, aiApiKey: e.target.value })}
-                                            placeholder="Enter API Key"
+                                            placeholder={settingsData.aiProvider === 'openai' ? 'sk-...' : 'AIza...'}
                                         />
+                                        <p className="text-xs text-gray-400 mt-1">
+                                            {settingsData.aiProvider === 'openai'
+                                                ? 'Dari platform.openai.com'
+                                                : 'Dari aistudio.google.com'}
+                                        </p>
                                     </div>
+                                    {/* Briefing */}
                                     <div>
                                         <label className="block text-sm font-medium text-gray-700 mb-1">AI Briefing / System Instruction</label>
                                         <textarea

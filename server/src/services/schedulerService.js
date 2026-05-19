@@ -54,19 +54,37 @@ export const scheduleJob = (schedule) => {
 
                     if (user?.aiApiKey) {
                         const tools = await getToolsForUser(schedule.userId);
+
+                        // System prompt: instruksi konten + larangan prefix
+                        const strictSystemPrompt = `${schedule.content}
+
+PENTING: Balas HANYA dengan pesan yang siap dikirim. Jangan tambahkan:
+- Kalimat pembuka seperti "Here's a message:", "Tentu, berikut pesannya:", atau sejenisnya
+- Penjelasan, komentar, atau catatan apapun di luar isi pesan
+- Tanda kutip di awal/akhir pesan
+Output langsung adalah isi pesan, tidak lebih.`;
+
                         const response = await aiService.generateResponse({
                             apiKey: user.aiApiKey,
                             provider: user.aiProvider || 'openai',
                             modelString: user.aiModel,
                             tools: tools,
                             mediaUrl: schedule.mediaUrl
-                        }, schedule.content, "Generate a scheduled message."); // System prompt is content, user message is dummy/context
+                        }, strictSystemPrompt, "Tulis pesan sesuai instruksi di atas.");
 
                         if (response) {
+                            // Strip prefix yang mungkin masih lolos
+                            const cleanResponse = response
+                                .replace(/^(here'?s?\s+a?\s*(scheduled\s+)?message\s*(you\s+can\s+use)?:?\s*)/i, '')
+                                .replace(/^(berikut\s+(adalah\s+)?pesan.*?:\s*)/i, '')
+                                .replace(/^(tentu[,.]?\s*)/i, '')
+                                .replace(/^---\n?/, '')
+                                .trim();
+
                             if (schedule.mediaUrl) {
-                                finalPayload = { image: { url: schedule.mediaUrl }, caption: response };
+                                finalPayload = { image: { url: schedule.mediaUrl }, caption: cleanResponse };
                             } else {
-                                finalPayload = { text: response };
+                                finalPayload = { text: cleanResponse };
                             }
                         }
                     } else {
@@ -129,6 +147,13 @@ export const scheduleJob = (schedule) => {
 
                 if (!finalPayload) {
                     logger.warn(`Schedule ${schedule.id} generated empty payload - skipping sending`);
+                    await prisma.scheduleLog.create({
+                        data: {
+                            scheduleId: schedule.id,
+                            status: 'FAILED',
+                            errorMessage: 'Generated empty payload'
+                        }
+                    });
                     return;
                 }
 
@@ -136,6 +161,13 @@ export const scheduleJob = (schedule) => {
 
                 if (!sent) {
                     logger.warn(`Session ${schedule.sessionId} disconnected or failed to send for schedule ${schedule.id}`);
+                    await prisma.scheduleLog.create({
+                        data: {
+                            scheduleId: schedule.id,
+                            status: 'FAILED',
+                            errorMessage: 'Session disconnected or failed to send'
+                        }
+                    });
                     return;
                 }
 
@@ -147,6 +179,13 @@ export const scheduleJob = (schedule) => {
                     await creditService.deductCredit(schedule.userId);
                 }
 
+                await prisma.scheduleLog.create({
+                    data: {
+                        scheduleId: schedule.id,
+                        status: 'SUCCESS'
+                    }
+                });
+
                 await prisma.schedule.update({
                     where: { id: schedule.id },
                     data: { lastRun: new Date() }
@@ -154,6 +193,17 @@ export const scheduleJob = (schedule) => {
 
             } catch (error) {
                 logger.error(`Failed to execute schedule ${schedule.id}: ${error.message}`);
+                try {
+                    await prisma.scheduleLog.create({
+                        data: {
+                            scheduleId: schedule.id,
+                            status: 'FAILED',
+                            errorMessage: error.message
+                        }
+                    });
+                } catch (logError) {
+                    logger.error(`Failed to create error log for schedule ${schedule.id}: ${logError.message}`);
+                }
             }
         });
 

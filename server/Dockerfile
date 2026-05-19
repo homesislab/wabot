@@ -2,9 +2,9 @@ FROM node:20-slim
 
 WORKDIR /app
 
-# Install system dependencies (needed for Prisma and Baileys sometimes)
+# Install system dependencies (needed for Prisma, Baileys, and audio processing)
 # Run as root for apt-get
-RUN apt-get update && apt-get install -y openssl procps
+RUN apt-get update && apt-get install -y openssl procps ffmpeg && rm -rf /var/lib/apt/lists/*
 
 # Create app directory permission
 RUN chown node:node /app

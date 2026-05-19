@@ -38,6 +38,7 @@ const router = express.Router();
  *         description: Invalid credentials
  */
 router.post('/login', authController.login);
+router.post('/google', authController.googleLogin); // Google OAuth
 /**
  * @swagger
  * /api/auth/register:

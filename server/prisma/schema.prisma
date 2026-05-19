@@ -35,11 +35,41 @@ model Rule {
   filterGroupId     String? // Optional: Specific Group JID
   credentialId      Int?
   credential        AiCredential? @relation(fields: [credentialId], references: [id])
+  miniAppId         String?       // ID mini app yang diaktifkan (untuk actionType ACTIVATE_MINI_APP)
   userId            Int           @default(1)
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
   user              User          @relation(fields: [userId], references: [id])
 }
+
+// Mini App yang dibuat secara dinamis oleh user via dashboard
+model MiniApp {
+  id              String   @id @default(cuid())
+  name            String
+  description     String?  @db.Text
+  icon            String   @default("🤖")
+  category        String   @default("General")
+  color           String   @default("#6366f1")
+  version         String   @default("1.0.0")
+  author          String   @default("Custom")
+  // KEYWORD | VOICE_APP | KEYWORD_THEN_VOICE
+  triggerType     String   @default("KEYWORD")
+  // JSON array of keywords, e.g. ["!zakat","zakat"]
+  triggerKeywords String   @db.Text @default("[]")
+  systemPrompt    String?  @db.Text // AI system prompt (null untuk static apps = pakai default engine)
+  referenceText   String?  @db.Text // Teks referensi custom (misal: teks Al-Fatiha, materi hukum, dll)
+  activationMsg   String?  @db.Text // Pesan saat keyword aktifkan session
+  requiresApiKey  Boolean  @default(true)
+  showProcessing  Boolean  @default(true)
+  // Handler type: DYNAMIC = pakai DynamicHandler, lainnya = filesystem handler
+  handlerType     String   @default("DYNAMIC") // DYNAMIC | TAJWID_CHECKER | ZAKAT_CALCULATOR
+  isActive        Boolean  @default(true)
+  userId          Int
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  user            User     @relation(fields: [userId], references: [id])
+}
+
 
 model Schedule {
   id             Int           @id @default(autoincrement())
@@ -61,6 +91,16 @@ model Schedule {
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
   user           User          @relation(fields: [userId], references: [id])
+  logs           ScheduleLog[]
+}
+
+model ScheduleLog {
+  id           Int      @id @default(autoincrement())
+  scheduleId   Int
+  status       String   // SUCCESS, FAILED
+  errorMessage String?  @db.Text
+  executedAt   DateTime @default(now())
+  schedule     Schedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
 }
 
 model MessageLog {
@@ -88,9 +128,12 @@ model Contact {
 model User {
   id            Int            @id @default(autoincrement())
   username      String         @unique
-  email         String?
+  email         String?        @unique
   phone         String?
-  password      String
+  password      String?        // nullable untuk Google-only users
+  googleId      String?        @unique // Google OAuth UID
+  googleEmail   String?        // Email dari Google
+  googleAvatar  String?        // Avatar URL dari Google
   role          String         @default("USER")
   credits       Int            @default(0)
   planType      String         @default("PAY_AS_YOU_GO")
@@ -118,6 +161,8 @@ model User {
   games         Game[]
   notes         Note[]
   telegramBots  TelegramBot[]
+  userApps      UserApp[]
+  miniApps      MiniApp[]
 }
 
 model TelegramBot {
@@ -262,4 +307,18 @@ model Note {
   user User @relation(fields: [userId], references: [id])
 
   @@unique([userId, keyword])
+}
+
+/// Menyimpan status enable/disable setiap Mini App per user
+model UserApp {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  appId     String   // ID app dari APP_CATALOG, e.g. 'tajwid-checker'
+  isEnabled Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@unique([userId, appId])
 }

@@ -11,7 +11,7 @@ router.use(requireAdmin);
 
 router.get('/', async (req, res) => {
     const users = await prisma.user.findMany({
-        select: { id: true, username: true, email: true, phone: true, role: true, credits: true, isActive: true, planType: true, messageCost: true, planExpiresAt: true, aiApiKey: true, aiProvider: true, aiBriefing: true, isAiEnabled: true, createdAt: true }
+        select: { id: true, username: true, email: true, phone: true, role: true, credits: true, isActive: true, planType: true, messageCost: true, planExpiresAt: true, aiApiKey: true, aiProvider: true, aiModel: true, aiBriefing: true, isAiEnabled: true, createdAt: true }
     });
     res.json(users);
 });
@@ -45,6 +45,7 @@ router.put('/:id', async (req, res) => {
         if (req.body.planExpiresAt !== undefined) data.planExpiresAt = req.body.planExpiresAt ? new Date(req.body.planExpiresAt) : null;
         if (req.body.aiApiKey !== undefined) data.aiApiKey = req.body.aiApiKey;
         if (req.body.aiProvider !== undefined) data.aiProvider = req.body.aiProvider;
+        if (req.body.aiModel !== undefined) data.aiModel = req.body.aiModel;
         if (req.body.aiBriefing !== undefined) data.aiBriefing = req.body.aiBriefing;
         if (req.body.isAiEnabled !== undefined) data.isAiEnabled = req.body.isAiEnabled;
 

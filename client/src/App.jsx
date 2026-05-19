@@ -23,6 +23,7 @@ import Games from './pages/Games';
 import Notes from './pages/Notes';
 import TelegramBots from './pages/TelegramBots';
 import Documentation from './pages/Documentation';
+import MiniApps from './pages/MiniApps';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { Navigate } from 'react-router-dom';
 
@@ -63,6 +64,7 @@ function App() {
             <Route path="notes" element={<Notes />} />
             <Route path="telegram-bots" element={<TelegramBots />} />
             <Route path="docs" element={<Documentation />} />
+            <Route path="mini-apps" element={<MiniApps />} />
           </Route>
         </Routes>
       </Router>

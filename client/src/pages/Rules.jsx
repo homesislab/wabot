@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import api from '../api';
-import { Plus, Trash, Zap, MessageSquare, Globe, Upload, Loader, Edit, X, Bot, Grid, Power } from 'lucide-react';
+import { Plus, Trash, Zap, MessageSquare, Globe, Upload, Loader, Edit, X, Bot, Grid, Power, Puzzle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 const Rules = () => {
@@ -23,6 +23,7 @@ const Rules = () => {
     const [sessions, setSessions] = useState([]);
     const [groups, setGroups] = useState([]);
     const [credentials, setCredentials] = useState([]);
+    const [miniApps, setMiniApps] = useState([]);
     const [showGallery, setShowGallery] = useState(false);
     const [galleryImages, setGalleryImages] = useState([]);
 
@@ -30,6 +31,7 @@ const Rules = () => {
         fetchRules();
         fetchSessions();
         fetchCredentials();
+        fetchMiniApps();
     }, []);
 
     useEffect(() => {
@@ -60,6 +62,15 @@ const Rules = () => {
             setCredentials(res.data);
         } catch (error) {
             console.error("Failed to fetch credentials", error);
+        }
+    };
+
+    const fetchMiniApps = async () => {
+        try {
+            const res = await api.get('/apps');
+            setMiniApps(res.data || []);
+        } catch (error) {
+            console.error("Failed to fetch mini apps", error);
         }
     };
 
@@ -103,11 +114,11 @@ const Rules = () => {
             apiPayload: rule.apiPayload || '{}',
             responseContent: rule.responseContent || '',
             responseMediaType: rule.responseMediaType || 'TEXT',
-
             responseMediaUrl: rule.responseMediaUrl || '',
             sessionId: rule.sessionId || '',
             filterGroupId: rule.filterGroupId || '',
-            credentialId: rule.credentialId || ''
+            credentialId: rule.credentialId || '',
+            miniAppId: rule.miniAppId || ''
         });
         window.scrollTo({ top: 0, behavior: 'smooth' });
     };
@@ -124,11 +135,11 @@ const Rules = () => {
             apiPayload: '{}',
             responseContent: '',
             responseMediaType: 'TEXT',
-
             responseMediaUrl: '',
             sessionId: '',
             filterGroupId: '',
-            credentialId: ''
+            credentialId: '',
+            miniAppId: ''
         });
     };
 
@@ -245,7 +256,7 @@ const Rules = () => {
 
                     <div className="md:col-span-2">
                         <label className="block text-sm font-medium text-gray-700 mb-1">Action Type</label>
-                        <div className="flex gap-4">
+                        <div className="flex gap-4 flex-wrap">
                             <label className={`flex-1 p-3 border rounded-lg cursor-pointer flex items-center gap-2 ${formData.actionType === 'RESPONSE' ? 'bg-emerald-50 border-sisia-primary text-sisia-primary' : 'hover:bg-gray-50'}`}>
                                 <input type="radio" name="actionType" value="RESPONSE" checked={formData.actionType === 'RESPONSE'} onChange={() => setFormData({ ...formData, actionType: 'RESPONSE' })} className="hidden" />
                                 <MessageSquare size={18} />
@@ -266,6 +277,14 @@ const Rules = () => {
                                     </div>
                                 </label>
                             )}
+                            <label className={`flex-1 p-3 border rounded-lg cursor-pointer flex items-center gap-2 ${formData.actionType === 'ACTIVATE_MINI_APP' ? 'bg-amber-50 border-amber-500 text-amber-600' : 'hover:bg-gray-50'}`}>
+                                <input type="radio" name="actionType" value="ACTIVATE_MINI_APP" checked={formData.actionType === 'ACTIVATE_MINI_APP'} onChange={() => setFormData({ ...formData, actionType: 'ACTIVATE_MINI_APP' })} className="hidden" />
+                                <Puzzle size={18} />
+                                <div className="flex flex-col text-left">
+                                    <span className="font-medium">Activate Mini App</span>
+                                    <span className="text-[10px] text-gray-500">Trigger a Mini App session</span>
+                                </div>
+                            </label>
                         </div>
                     </div>
 
@@ -354,6 +373,38 @@ const Rules = () => {
                             <p className="text-xs text-gray-500 mt-1">Define how the AI should behave for this rule. It uses your global OpenAI API Key.</p>
                         </div>
                     )}
+
+                    {formData.actionType === 'ACTIVATE_MINI_APP' && (
+                        <div className="md:col-span-2 space-y-3">
+                            {/* Info box */}
+                            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs text-blue-700">
+                                <p className="font-semibold mb-1">💡 Kapan gunakan Rule ini?</p>
+                                <p>Gunakan <strong>Activate Mini App via Rule</strong> jika ingin mengaktifkan app hanya di grup/chat tertentu, atau menambah kondisi filter tambahan.</p>
+                                <p className="mt-1 text-blue-500">App yang sudah punya keyword sendiri (di halaman Mini Apps) <strong>tidak perlu</strong> rule ini — bot sudah otomatis merespons.</p>
+                            </div>
+
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Pilih Mini App</label>
+                                <select
+                                    className="w-full border p-2 rounded-lg outline-none focus:ring-2 focus:ring-amber-400 border-amber-200 bg-white"
+                                    value={formData.miniAppId || ''}
+                                    onChange={e => setFormData({ ...formData, miniAppId: e.target.value })}
+                                    required
+                                >
+                                    <option value="">-- Pilih Mini App --</option>
+                                    {miniApps.map(app => (
+                                        <option key={app.id} value={app.id}>
+                                            {app.icon} {app.name}
+                                            {app.triggerType === 'VOICE_APP' ? ' 🎙️' : ''}
+                                        </option>
+                                    ))}
+                                </select>
+                                <p className="text-xs text-amber-600 mt-1">
+                                    ⚡ Ketika trigger rule ini terpenuhi, Mini App akan diaktifkan dan menunggu voice note dari user.
+                                </p>
+                            </div>
+                        </div>
+                    )}
                 </div>
                 <div className="mt-6 flex justify-end">
                     <button type="submit" className="bg-sisia-primary text-white px-6 py-2 rounded-lg font-medium hover:bg-emerald-700 transition-colors flex items-center gap-2">
@@ -425,6 +476,10 @@ const Rules = () => {
                                                     ) : rule.actionType === 'AI_REPLY' ? (
                                                         <span className="flex items-center gap-1.5 text-purple-600 font-medium">
                                                             <Bot size={14} /> AI Auto-Response
+                                                        </span>
+                                                    ) : rule.actionType === 'ACTIVATE_MINI_APP' ? (
+                                                        <span className="flex items-center gap-1.5 text-amber-600 font-medium">
+                                                            <Puzzle size={14} /> {miniApps.find(a => a.id === rule.miniAppId)?.icon} {miniApps.find(a => a.id === rule.miniAppId)?.name || rule.miniAppId}
                                                         </span>
                                                     ) : (
                                                         <span className="flex items-center gap-1.5 text-blue-600 font-mono text-xs">

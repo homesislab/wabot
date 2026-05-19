@@ -121,12 +121,17 @@ export const startSession = async (sessionId) => {
             for (const msg of m.messages) {
                 try {
                     const isFromMe = msg.key.fromMe;
+
+                    // Deteksi voice note (Push-to-Talk)
+                    const isVoiceNote = msg.message?.audioMessage?.ptt === true;
+
                     const content = msg.message?.conversation ||
                         msg.message?.extendedTextMessage?.text ||
                         msg.message?.imageMessage?.caption ||
                         "";
 
-                    if (!content) continue; // Skip empty/protocol messages
+                    // Skip pesan kosong KECUALI voice note
+                    if (!content && !isVoiceNote) continue;
 
                     const remoteJid = msg.key.remoteJid;
 
@@ -136,12 +141,12 @@ export const startSession = async (sessionId) => {
                             direction: isFromMe ? 'OUT' : 'IN',
                             from: isFromMe ? sessionId : remoteJid,
                             to: isFromMe ? remoteJid : sessionId,
-                            content,
+                            content: isVoiceNote ? '[voice note]' : content,
                             status: isFromMe ? 'SENT' : 'RECEIVED'
                         }
                     });
 
-                    // Handle incoming messages for Rules
+                    // Handle incoming messages (rules + apps)
                     if (!isFromMe) {
                         const participant = msg.key.participant || msg.key.remoteJid;
                         const jid = msg.key.remoteJid;
@@ -151,7 +156,7 @@ export const startSession = async (sessionId) => {
                             sessionId,
                             participant,
                             jid,
-                            content,
+                            content, // kosong untuk voice note, App akan pakai rawMessage
                             msg,
                             sock
                         );

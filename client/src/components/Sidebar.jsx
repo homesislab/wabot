@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Smartphone, Users, MessageSquare, Calendar, Zap, Send, Database, Shield, LogOut, BookOpen, ChevronLeft, ChevronRight, Coins, Image as ImageIcon, ScrollText, Megaphone, Wrench, Key, Gamepad2, FileText, Bot } from 'lucide-react';
+import { LayoutDashboard, Smartphone, Users, MessageSquare, Calendar, Zap, Send, Database, Shield, LogOut, BookOpen, ChevronLeft, ChevronRight, Coins, Image as ImageIcon, ScrollText, Megaphone, Wrench, Key, Gamepad2, FileText, Bot, PuzzleIcon } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 const Sidebar = ({ isOpen, onClose }) => {
@@ -23,6 +23,7 @@ const Sidebar = ({ isOpen, onClose }) => {
         { path: '/app/gallery', label: 'Gallery', icon: ImageIcon },
         { path: '/app/games', label: 'Game Builder', icon: Gamepad2 },
         { path: '/app/notes', label: 'Notes', icon: FileText },
+        { path: '/app/mini-apps', label: 'Mini Apps', icon: PuzzleIcon },
         { path: '/app/profile', label: 'My Profile', icon: Users },
         { path: '/app/send', label: 'Send Test', icon: Send },
         { path: '/app/docs', label: 'Documentation', icon: BookOpen },

@@ -4,7 +4,26 @@ import api from '../api';
 import { useAuth } from '../context/AuthContext';
 
 const Profile = () => {
-    const { setUser } = useAuth(); // If set user is available in context, use it to update local user state if needed
+    const { setUser } = useAuth();
+
+    // Model options per provider
+    const AI_MODELS = {
+        openai: [
+            { value: 'gpt-5.5',       label: 'GPT-5.5 (Terbaru, Pro)' },
+            { value: 'gpt-5.4',       label: 'GPT-5.4 (Agents & Pro)' },
+            { value: 'gpt-5.4-mini',  label: 'GPT-5.4 Mini (Cepat & Hemat)' },
+            { value: 'gpt-4o',        label: 'GPT-4o' },
+            { value: 'gpt-4o-mini',   label: 'GPT-4o Mini' },
+            { value: 'gpt-4-turbo',   label: 'GPT-4 Turbo' },
+            { value: 'gpt-3.5-turbo', label: 'GPT-3.5 Turbo (Paling Hemat)' },
+        ],
+        gemini: [
+            { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash (Terbaru)' },
+            { value: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash' },
+            { value: 'gemini-1.5-pro',   label: 'Gemini 1.5 Pro (Terbaik)' },
+            { value: 'gemini-1.5-flash', label: 'Gemini 1.5 Flash (Cepat)' },
+        ],
+    };
 
     const [profile, setProfile] = useState(null);
     const [loading, setLoading] = useState(true);
@@ -446,7 +465,7 @@ const Profile = () => {
                                             <label className="block text-sm font-medium text-gray-700 mb-1">Provider</label>
                                             <select
                                                 value={editForm.aiProvider}
-                                                onChange={e => setEditForm({ ...editForm, aiProvider: e.target.value })}
+                                                onChange={e => setEditForm({ ...editForm, aiProvider: e.target.value, aiModel: '' })}
                                                 className="w-full px-4 py-2 border rounded-xl outline-none focus:ring-2 focus:ring-sisia-primary/20 focus:border-sisia-primary bg-white"
                                             >
                                                 <option value="openai">OpenAI (GPT)</option>
@@ -455,31 +474,19 @@ const Profile = () => {
                                         </div>
                                         <div>
                                             <label className="block text-sm font-medium text-gray-700 mb-1">Model Version</label>
-                                            <input
-                                                type="text"
+                                            <select
                                                 value={editForm.aiModel}
                                                 onChange={e => setEditForm({ ...editForm, aiModel: e.target.value })}
-                                                placeholder={editForm.aiProvider === 'gemini' ? "e.g. gemini-1.5-flash" : "e.g. gpt-4o-mini"}
-                                                list="ai-models"
                                                 className="w-full px-4 py-2 border rounded-xl outline-none focus:ring-2 focus:ring-sisia-primary/20 focus:border-sisia-primary bg-white"
-                                            />
-                                            <datalist id="ai-models">
-                                                {editForm.aiProvider === 'gemini' ? (
-                                                    <>
-                                                        <option value="gemini-1.5-flash" />
-                                                        <option value="gemini-1.5-pro" />
-                                                        <option value="gemini-2.0-flash" />
-                                                        <option value="gemini-2.5-flash" />
-                                                    </>
-                                                ) : (
-                                                    <>
-                                                        <option value="gpt-3.5-turbo" />
-                                                        <option value="gpt-4" />
-                                                        <option value="gpt-4o" />
-                                                        <option value="gpt-4o-mini" />
-                                                    </>
-                                                )}
-                                            </datalist>
+                                            >
+                                                <option value="">-- Default --</option>
+                                                {(AI_MODELS[editForm.aiProvider] || []).map(m => (
+                                                    <option key={m.value} value={m.value}>{m.label}</option>
+                                                ))}
+                                            </select>
+                                            <p className="text-xs text-gray-400 mt-1">
+                                                {editForm.aiProvider === 'openai' ? 'Default: gpt-4o-mini' : 'Default: gemini-1.5-flash'}
+                                            </p>
                                         </div>
                                     </div>
                                     <div>

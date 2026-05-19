@@ -94,4 +94,24 @@ router.post('/', schedulerController.createSchedule);
 router.put('/:id', schedulerController.updateSchedule);
 router.delete('/:id', schedulerController.deleteSchedule);
 
+/**
+ * @swagger
+ * /api/schedules/{id}/logs:
+ *   get:
+ *     summary: Get logs for a specific schedule
+ *     tags: [Schedules]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: List of schedule logs
+ */
+router.get('/:id/logs', schedulerController.getScheduleLogs);
+
 export default router;

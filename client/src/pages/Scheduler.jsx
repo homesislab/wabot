@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import api from '../api';
-import { Plus, Trash, Upload, Loader, Edit, X, Grid, Smartphone, Power } from 'lucide-react';
+import { Plus, Trash, Upload, Loader, Edit, X, Grid, Smartphone, Power, History } from 'lucide-react';
 
 const Scheduler = () => {
     const [schedules, setSchedules] = useState([]);
@@ -29,6 +29,9 @@ const Scheduler = () => {
     });
     const [showGallery, setShowGallery] = useState(false);
     const [galleryImages, setGalleryImages] = useState([]);
+    const [viewingLogsId, setViewingLogsId] = useState(null);
+    const [scheduleLogs, setScheduleLogs] = useState([]);
+    const [loadingLogs, setLoadingLogs] = useState(false);
 
     useEffect(() => {
         fetchSchedules();
@@ -154,6 +157,23 @@ const Scheduler = () => {
     const fetchSchedules = async () => {
         const res = await api.get('/schedules');
         setSchedules(res.data);
+    };
+
+    const fetchLogs = async (id) => {
+        if (viewingLogsId === id) {
+            setViewingLogsId(null);
+            return;
+        }
+        setViewingLogsId(id);
+        setLoadingLogs(true);
+        try {
+            const res = await api.get(`/schedules/${id}/logs`);
+            setScheduleLogs(res.data);
+        } catch (error) {
+            console.error("Failed to fetch logs", error);
+        } finally {
+            setLoadingLogs(false);
+        }
     };
 
     const handleSubmit = async (e) => {
@@ -470,56 +490,103 @@ const Scheduler = () => {
 
                             <div className="divide-y divide-gray-50">
                                 {sessionSchedules.map(sch => (
-                                    <div key={sch.id} className={`p-6 hover:bg-gray-50 transition-colors flex flex-col md:flex-row gap-4 items-start md:items-center justify-between group ${!sch.isActive ? 'opacity-60' : ''}`}>
-                                        <div className="flex-1">
-                                            <div className="flex items-center gap-3 mb-2">
-                                                <span className="text-sm font-bold text-gray-900 bg-gray-100 px-2 py-0.5 rounded">To: {sch.recipient}</span>
-                                                <span className="text-xs font-mono text-gray-500 bg-gray-50 border px-1.5 py-0.5 rounded flex items-center gap-1" title="Cron Expression">
-                                                    <Loader size={10} className="text-gray-400" /> {sch.cronExpression}
-                                                </span>
-                                                {!sch.isActive && (
-                                                    <span className="text-[10px] font-bold bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded uppercase tracking-wider">Paused</span>
-                                                )}
-                                            </div>
-                                            <p className="text-gray-600 text-sm leading-relaxed mb-2 line-clamp-2">{sch.content}</p>
-
-                                            <div className="flex items-center gap-4 text-xs text-gray-400">
-                                                <span className="flex items-center gap-1">
-                                                    <span className={`w-2 h-2 rounded-full ${sch.lastRun ? 'bg-emerald-400' : 'bg-gray-300'}`}></span>
-                                                    Last run: {sch.lastRun ? new Date(sch.lastRun).toLocaleString() : 'Never'}
-                                                </span>
-                                                {sch.mediaUrl && (
-                                                    <span className="flex items-center gap-1 text-blue-500 font-medium bg-blue-50 px-2 py-0.5 rounded">
-                                                        <Grid size={12} /> Has Media
+                                    <div key={sch.id} className="group border-b border-gray-50 last:border-0">
+                                        <div className={`p-6 hover:bg-gray-50 transition-colors flex flex-col md:flex-row gap-4 items-start md:items-center justify-between ${!sch.isActive ? 'opacity-60' : ''}`}>
+                                            <div className="flex-1">
+                                                <div className="flex items-center gap-3 mb-2">
+                                                    <span className="text-sm font-bold text-gray-900 bg-gray-100 px-2 py-0.5 rounded">To: {sch.recipient}</span>
+                                                    <span className="text-xs font-mono text-gray-500 bg-gray-50 border px-1.5 py-0.5 rounded flex items-center gap-1" title="Cron Expression">
+                                                        <Loader size={10} className="text-gray-400" /> {sch.cronExpression}
                                                     </span>
-                                                )}
+                                                    {!sch.isActive && (
+                                                        <span className="text-[10px] font-bold bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded uppercase tracking-wider">Paused</span>
+                                                    )}
+                                                </div>
+                                                <p className="text-gray-600 text-sm leading-relaxed mb-2 line-clamp-2">{sch.content}</p>
+
+                                                <div className="flex items-center gap-4 text-xs text-gray-400">
+                                                    <span className="flex items-center gap-1">
+                                                        <span className={`w-2 h-2 rounded-full ${sch.lastRun ? 'bg-emerald-400' : 'bg-gray-300'}`}></span>
+                                                        Last run: {sch.lastRun ? new Date(sch.lastRun).toLocaleString() : 'Never'}
+                                                    </span>
+                                                    {sch.mediaUrl && (
+                                                        <span className="flex items-center gap-1 text-blue-500 font-medium bg-blue-50 px-2 py-0.5 rounded">
+                                                            <Grid size={12} /> Has Media
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            </div>
+
+                                            <div className="flex items-center gap-2">
+                                                <button
+                                                    onClick={() => handleToggleScheduleActive(sch, !sch.isActive)}
+                                                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${sch.isActive ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100' : 'bg-gray-100 text-gray-500 border-gray-200 hover:bg-gray-200'}`}
+                                                    title={sch.isActive ? "Click to Pause" : "Click to Resume"}
+                                                >
+                                                    <Power size={12} />
+                                                    {sch.isActive ? 'Active' : 'Paused'}
+                                                </button>
+                                                <button
+                                                    onClick={() => fetchLogs(sch.id)}
+                                                    className={`p-2 rounded-lg border transition-all ${viewingLogsId === sch.id ? 'bg-sisia-primary text-white border-sisia-primary' : 'text-gray-400 hover:text-sisia-primary bg-white hover:border-gray-200 hover:shadow-sm'}`}
+                                                    title="View Logs"
+                                                >
+                                                    <History size={18} />
+                                                </button>
+                                                <button
+                                                    onClick={() => handleEdit(sch)}
+                                                    className="p-2 text-gray-400 hover:text-sisia-primary hover:bg-white hover:shadow-sm border border-transparent hover:border-gray-200 rounded-lg transition-all"
+                                                    title="Edit Schedule"
+                                                >
+                                                    <Edit size={18} />
+                                                </button>
+                                                <button
+                                                    onClick={() => handleDelete(sch.id)}
+                                                    className="p-2 text-gray-400 hover:text-red-500 hover:bg-white hover:shadow-sm border border-transparent hover:border-gray-200 rounded-lg transition-all"
+                                                    title="Delete Schedule"
+                                                >
+                                                    <Trash size={18} />
+                                                </button>
                                             </div>
                                         </div>
-
-                                        <div className="flex items-center gap-2">
-                                            <button
-                                                onClick={() => handleToggleScheduleActive(sch, !sch.isActive)}
-                                                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${sch.isActive ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100' : 'bg-gray-100 text-gray-500 border-gray-200 hover:bg-gray-200'}`}
-                                                title={sch.isActive ? "Click to Pause" : "Click to Resume"}
-                                            >
-                                                <Power size={12} />
-                                                {sch.isActive ? 'Active' : 'Paused'}
-                                            </button>
-                                            <button
-                                                onClick={() => handleEdit(sch)}
-                                                className="p-2 text-gray-400 hover:text-sisia-primary hover:bg-white hover:shadow-sm border border-transparent hover:border-gray-200 rounded-lg transition-all"
-                                                title="Edit Schedule"
-                                            >
-                                                <Edit size={18} />
-                                            </button>
-                                            <button
-                                                onClick={() => handleDelete(sch.id)}
-                                                className="p-2 text-gray-400 hover:text-red-500 hover:bg-white hover:shadow-sm border border-transparent hover:border-gray-200 rounded-lg transition-all"
-                                                title="Delete Schedule"
-                                            >
-                                                <Trash size={18} />
-                                            </button>
-                                        </div>
+                                        {viewingLogsId === sch.id && (
+                                            <div className="px-6 pb-6 animate-in fade-in slide-in-from-top-2 duration-300">
+                                                <div className="bg-gray-50/50 rounded-xl p-4 border border-gray-100">
+                                                    <div className="flex justify-between items-center mb-3">
+                                                        <h4 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-1.5">
+                                                            <History size={12} /> Execution History (Recent)
+                                                        </h4>
+                                                        <button onClick={() => setViewingLogsId(null)} className="text-gray-400 hover:text-gray-600">
+                                                            <X size={14} />
+                                                        </button>
+                                                    </div>
+                                                    {loadingLogs ? (
+                                                        <div className="flex justify-center py-4 text-sisia-primary"><Loader className="animate-spin" size={20} /></div>
+                                                    ) : (
+                                                        <div className="space-y-1.5">
+                                                            {scheduleLogs.length === 0 ? (
+                                                                <p className="text-[11px] text-gray-400 text-center py-4 italic">No execution history found.</p>
+                                                            ) : (
+                                                                scheduleLogs.map(log => (
+                                                                    <div key={log.id} className="flex flex-wrap justify-between items-center bg-white/50 p-2.5 rounded-lg border border-gray-50 hover:border-gray-200 transition-colors">
+                                                                        <div className="flex items-center gap-3">
+                                                                            <div className={`w-2 h-2 rounded-full ${log.status === 'SUCCESS' ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.4)]' : 'bg-red-400 shadow-[0_0_8px_rgba(248,113,113,0.4)]'}`}></div>
+                                                                            <span className={`text-[11px] font-bold ${log.status === 'SUCCESS' ? 'text-emerald-600' : 'text-red-700'}`}>{log.status}</span>
+                                                                            <span className="text-[10px] font-medium text-gray-400 bg-gray-50 px-1.5 py-0.5 rounded-md border border-gray-100">{new Date(log.executedAt).toLocaleString()}</span>
+                                                                        </div>
+                                                                        {log.errorMessage && (
+                                                                            <span className="text-[10px] text-red-500 font-medium bg-red-50/50 px-2 py-0.5 rounded-lg border border-red-100 max-w-full mt-1 sm:mt-0" title={log.errorMessage}>
+                                                                                {log.errorMessage}
+                                                                            </span>
+                                                                        )}
+                                                                    </div>
+                                                                ))
+                                                            )}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        )}
                                     </div>
                                 ))}
                             </div>

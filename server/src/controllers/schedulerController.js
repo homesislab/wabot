@@ -55,3 +55,21 @@ export const deleteSchedule = async (req, res) => {
         res.status(500).json({ error: 'Failed to delete schedule' });
     }
 };
+
+export const getScheduleLogs = async (req, res) => {
+    const { id } = req.params;
+    try {
+        const check = await prisma.schedule.findUnique({ where: { id: parseInt(id) } });
+        if (!check || check.userId !== req.user.id) return res.status(404).json({ error: 'Schedule not found' });
+
+        const logs = await prisma.scheduleLog.findMany({
+            where: { scheduleId: parseInt(id) },
+            orderBy: { executedAt: 'desc' },
+            take: 20
+        });
+        res.json(logs);
+    } catch (error) {
+        logger.error(error);
+        res.status(500).json({ error: 'Failed to fetch logs' });
+    }
+};
