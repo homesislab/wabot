@@ -40,7 +40,8 @@ export const handleActiveGame = async (normalizedMsg) => {
 
         // --- BYPASS SYSTEM COMMANDS & MINI APPS ---
         // Biarkan command bot/app (seperti !tajwid, !zakat, !simpan) lewat, kecuali command game
-        if (cmdText.startsWith('!') && !['!quit', '!keluar', '!join', '!start'].includes(cmdText)) {
+        const GAME_COMMANDS = ['!quit', '!keluar', '!join', '!start', '!stop', '!lanjut', '!next', '!score'];
+        if (cmdText.startsWith('!') && !GAME_COMMANDS.includes(cmdText)) {
             return false; // Let ruleEngine/AppRouter handle these
         }
 
