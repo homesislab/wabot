@@ -17,7 +17,7 @@ export const createRule = async (req, res) => {
             name, triggerType, triggerValue, actionType,
             apiUrl, apiMethod, apiPayload, responseContent,
             responseMediaType, responseMediaUrl, sessionId,
-            filterGroupId, credentialId
+            filterGroupId, credentialId, miniAppId
         } = req.body;
 
         const rule = await prisma.rule.create({
@@ -35,6 +35,7 @@ export const createRule = async (req, res) => {
                 sessionId: sessionId || null,
                 filterGroupId: filterGroupId || null,
                 credentialId: credentialId ? parseInt(credentialId) : null,
+                miniAppId: miniAppId || null,
                 userId: req.user.id
             }
         });
@@ -48,33 +49,32 @@ export const createRule = async (req, res) => {
 export const updateRule = async (req, res) => {
     const { id } = req.params;
     try {
-        const {
-            name, triggerType, triggerValue, actionType,
-            apiUrl, apiMethod, apiPayload, responseContent,
-            responseMediaType, responseMediaUrl, sessionId,
-            filterGroupId, credentialId
-        } = req.body;
-
         const rule = await prisma.rule.findUnique({ where: { id: parseInt(id) } });
         if (!rule || rule.userId !== req.user.id) return res.status(404).json({ error: 'Rule not found' });
 
+        const allowedFields = [
+            'name', 'triggerType', 'triggerValue', 'actionType',
+            'apiUrl', 'apiMethod', 'apiPayload', 'responseContent',
+            'responseMediaType', 'responseMediaUrl', 'sessionId',
+            'filterGroupId', 'credentialId', 'miniAppId', 'isActive'
+        ];
+        
+        const data = {};
+        for (const field of allowedFields) {
+            if (req.body[field] !== undefined) {
+                if (field === 'credentialId') {
+                    data[field] = req.body[field] ? parseInt(req.body[field]) : null;
+                } else if (field === 'isActive') {
+                    data[field] = Boolean(req.body[field]);
+                } else {
+                    data[field] = req.body[field] === '' ? null : req.body[field];
+                }
+            }
+        }
+
         const updatedRule = await prisma.rule.update({
             where: { id: parseInt(id) },
-            data: {
-                name,
-                triggerType,
-                triggerValue,
-                actionType,
-                apiUrl: apiUrl || null,
-                apiMethod: apiMethod || 'POST',
-                apiPayload: apiPayload || '{}',
-                responseContent: responseContent || null,
-                responseMediaType: responseMediaType || 'TEXT',
-                responseMediaUrl: responseMediaUrl || null,
-                sessionId: sessionId || null,
-                filterGroupId: filterGroupId || null,
-                credentialId: credentialId ? parseInt(credentialId) : null
-            }
+            data
         });
         res.json(updatedRule);
     } catch (error) {
