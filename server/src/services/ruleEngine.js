@@ -310,8 +310,22 @@ const executeAction = async (rule, normalizedMsg) => {
             logger.info(`Rule ${rule.id} API executed to ${url}. Status: ${response.status}`);
 
             // Optional: If the API returns a 'message' field, reply with it (Fonnte-like behavior)
-            if (data && data.message) {
+            // Filter out generic automation acknowledgment messages (n8n, Make, Zapier, etc.)
+            const AUTOMATION_ACK_PATTERNS = [
+                /^workflow\s*(was\s*)?started$/i,
+                /^execution\s*(was\s*)?started$/i,
+                /^workflow\s*is\s*running$/i,
+                /^scenario\s*(was\s*)?started$/i,  // Make.com
+                /^zap\s*(was\s*)?triggered$/i,      // Zapier
+            ];
+            const isAutomationAck = (msg) =>
+                typeof msg === 'string' &&
+                AUTOMATION_ACK_PATTERNS.some(p => p.test(msg.trim()));
+
+            if (data && data.message && !isAutomationAck(data.message)) {
                 await messageAdapter.sendMessage(normalizedMsg, { text: typeof data.message === 'string' ? data.message : JSON.stringify(data.message) }, rule.userId);
+            } else if (data && data.message && isAutomationAck(data.message)) {
+                logger.info(`Rule ${rule.id} suppressed automation acknowledgment: "${data.message}"`);
             }
 
         } catch (error) {

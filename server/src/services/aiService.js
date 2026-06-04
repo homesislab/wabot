@@ -12,15 +12,17 @@ const AI_CONFIG = Object.freeze({
     FETCH_TIMEOUT_MS: 15_000,
     MAX_PROMPT_LENGTH: 400,
     MAX_HERCAI_PROMPT_LENGTH: 500,
+    DEFAULT_OLLAMA_MODEL: 'llama3',
 });
 
 // ─── Singleton AI Clients (keyed by apiKey) ───────────────────────────────────
 const openaiClients = new Map();
-const getOpenAIClient = (apiKey) => {
-    if (!openaiClients.has(apiKey)) {
-        openaiClients.set(apiKey, new OpenAI({ apiKey }));
+const getOpenAIClient = (apiKey, baseURL) => {
+    const key = `${apiKey}_${baseURL || 'default'}`;
+    if (!openaiClients.has(key)) {
+        openaiClients.set(key, new OpenAI({ apiKey: apiKey || 'ollama', baseURL }));
     }
-    return openaiClients.get(apiKey);
+    return openaiClients.get(key);
 };
 
 const geminiClients = new Map();
@@ -78,6 +80,8 @@ export const generateResponse = async ({ apiKey, provider = 'openai', modelStrin
     try {
         if (provider === 'gemini') {
             return await generateGeminiResponse(apiKey, modelString || AI_CONFIG.DEFAULT_GEMINI_MODEL, tools, systemInstruction, userMessage, mediaUrl);
+        } else if (provider === 'ollama') {
+            return await generateOllamaResponse(apiKey, modelString || AI_CONFIG.DEFAULT_OLLAMA_MODEL, tools, systemInstruction, userMessage, mediaUrl);
         } else {
             return await generateOpenAIResponse(apiKey, modelString || AI_CONFIG.DEFAULT_OPENAI_MODEL, tools, systemInstruction, userMessage, mediaUrl);
         }
@@ -88,8 +92,8 @@ export const generateResponse = async ({ apiKey, provider = 'openai', modelStrin
 };
 
 // --- OpenAI Implementation ---
-async function generateOpenAIResponse(apiKey, model, tools, systemInstruction, userMessage, mediaUrl) {
-    const openai = getOpenAIClient(apiKey);
+async function generateOpenAIResponse(apiKey, model, tools, systemInstruction, userMessage, mediaUrl, baseURL) {
+    const openai = getOpenAIClient(apiKey, baseURL);
 
     // Convert generic tools to OpenAI format
     // Note: tools from toolManager have shape { type, function: { name, description, parameters }, _internal }
@@ -196,6 +200,17 @@ async function generateOpenAIResponse(apiKey, model, tools, systemInstruction, u
     }
 
     return finalResponse;
+}
+
+// --- Ollama Implementation ---
+async function generateOllamaResponse(baseUrl, model, tools, systemInstruction, userMessage, mediaUrl) {
+    // For Ollama, the user provides the Base URL (e.g. http://localhost:11434) in the apiKey field
+    // We use OpenAI compatible endpoint: http://localhost:11434/v1
+    const cleanUrl = baseUrl.replace(/\/+$/, ''); // remove trailing slashes
+    const endpoint = cleanUrl.endsWith('/v1') ? cleanUrl : `${cleanUrl}/v1`;
+    
+    // We just reuse the OpenAI implementation but pass the endpoint as baseURL
+    return await generateOpenAIResponse('ollama-local', model, tools, systemInstruction, userMessage, mediaUrl, endpoint);
 }
 
 // --- Gemini Implementation ---

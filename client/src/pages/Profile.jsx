@@ -23,6 +23,16 @@ const Profile = () => {
             { value: 'gemini-1.5-pro',   label: 'Gemini 1.5 Pro (Terbaik)' },
             { value: 'gemini-1.5-flash', label: 'Gemini 1.5 Flash (Cepat)' },
         ],
+        ollama: [
+            { value: 'llama3', label: 'Llama 3' },
+            { value: 'llama3.1', label: 'Llama 3.1' },
+            { value: 'llama3.2', label: 'Llama 3.2' },
+            { value: 'mistral', label: 'Mistral' },
+            { value: 'gemma', label: 'Gemma' },
+            { value: 'gemma2', label: 'Gemma 2' },
+            { value: 'qwen', label: 'Qwen' },
+            { value: 'phi3', label: 'Phi-3' },
+        ],
     };
 
     const [profile, setProfile] = useState(null);
@@ -312,8 +322,8 @@ const Profile = () => {
                     <div>
                         <p className="text-sm text-gray-500 font-medium mb-1">AI Provider</p>
                         <div className="flex flex-col gap-1">
-                            <span className={`w-fit px-2 py-1 rounded-md text-sm font-medium ${profile?.aiProvider === 'gemini' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}`}>
-                                {profile?.aiProvider === 'gemini' ? 'Google Gemini' : 'OpenAI'}
+                            <span className={`w-fit px-2 py-1 rounded-md text-sm font-medium ${profile?.aiProvider === 'gemini' ? 'bg-blue-100 text-blue-700' : profile?.aiProvider === 'ollama' ? 'bg-orange-100 text-orange-700' : 'bg-green-100 text-green-700'}`}>
+                                {profile?.aiProvider === 'gemini' ? 'Google Gemini' : profile?.aiProvider === 'ollama' ? 'Ollama (Local)' : 'OpenAI'}
                             </span>
                             <span className="text-sm text-gray-600 font-medium">
                                 Model: {profile?.aiModel || 'Default'}
@@ -470,6 +480,7 @@ const Profile = () => {
                                             >
                                                 <option value="openai">OpenAI (GPT)</option>
                                                 <option value="gemini">Google Gemini</option>
+                                                <option value="ollama">Ollama (Local)</option>
                                             </select>
                                         </div>
                                         <div>
@@ -485,21 +496,23 @@ const Profile = () => {
                                                 ))}
                                             </select>
                                             <p className="text-xs text-gray-400 mt-1">
-                                                {editForm.aiProvider === 'openai' ? 'Default: gpt-4o-mini' : 'Default: gemini-1.5-flash'}
+                                                {editForm.aiProvider === 'openai' ? 'Default: gpt-4o-mini' : editForm.aiProvider === 'ollama' ? 'Default: llama3' : 'Default: gemini-1.5-flash'}
                                             </p>
                                         </div>
                                     </div>
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">API Key</label>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                                            {editForm.aiProvider === 'ollama' ? 'Ollama Base URL' : 'API Key'}
+                                        </label>
                                         <input
-                                            type="password"
+                                            type={editForm.aiProvider === 'ollama' ? 'text' : 'password'}
                                             value={editForm.aiApiKey}
                                             onChange={e => setEditForm({ ...editForm, aiApiKey: e.target.value })}
-                                            placeholder="sk-..."
+                                            placeholder={editForm.aiProvider === 'ollama' ? 'http://localhost:11434' : 'sk-...'}
                                             className="w-full px-4 py-2 border rounded-xl outline-none focus:ring-2 focus:ring-sisia-primary/20 focus:border-sisia-primary"
                                         />
                                         <p className="text-xs text-gray-500 mt-1">
-                                            {editForm.aiProvider === 'gemini' ? 'Get key from Google AI Studio' : 'Get key from OpenAI Platform'}
+                                            {editForm.aiProvider === 'gemini' ? 'Get key from Google AI Studio' : editForm.aiProvider === 'ollama' ? 'e.g. http://localhost:11434' : 'Get key from OpenAI Platform'}
                                         </p>
                                     </div>
                                 </div>
