@@ -31,6 +31,7 @@ const Profile = () => {
             { value: 'gemma', label: 'Gemma' },
             { value: 'gemma2', label: 'Gemma 2' },
             { value: 'qwen', label: 'Qwen' },
+            { value: 'qwen2.5:1.5b', label: 'Qwen 2.5 (1.5B)' },
             { value: 'phi3', label: 'Phi-3' },
         ],
     };
