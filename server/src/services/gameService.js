@@ -53,8 +53,8 @@ export const handleActiveGame = async (normalizedMsg) => {
         const game = activeGame.game;
         let state = JSON.parse(activeGame.state);
 
-        if (cmdText === '!quit' || cmdText === '!keluar') {
-            await sendGameMessage(normalizedMsg, game.userId, { text: `Berhenti bermain ${game.name}. Sampai jumpa!` });
+        if (cmdText === '!quit' || cmdText === '!keluar' || cmdText === '!stop') {
+            await sendGameMessage(normalizedMsg, game.userId, { text: `🛑 Game *${game.name}* dihentikan oleh @${formatPlayerName(participant)}. Sampai jumpa!`, mentions: [participant] });
             await prisma.activeGame.delete({ where: { id: activeGame.id } });
             return true;
         }
@@ -418,6 +418,12 @@ async function handleAiRpgInput(activeGame, normalizedMsg, game, state) {
         await sendGameMessage(normalizedMsg, game.userId, { text: "🎲 Game Master sedang memproses cerita berdasarkan aksi kalian..." });
         await advanceAiRpg(activeGame, normalizedMsg, game, state);
     } else {
+        // Only record chat from registered players in this game session
+        if (!state.players || !state.players.includes(participant)) {
+            // Silently ignore messages from non-players
+            return;
+        }
+
         // Record chat
         const role = state.roles[participant] || "Unknown Role";
         const playerName = formatPlayerName(participant);
