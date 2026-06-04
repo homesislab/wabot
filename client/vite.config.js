@@ -8,6 +8,9 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
+      workbox: {
+        navigateFallbackDenylist: [/^\/api/]
+      },
       includeAssets: ['logo.svg', 'logo.png'],
       manifest: {
         name: 'Sisia',

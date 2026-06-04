@@ -118,7 +118,15 @@ export const processMessage = async (normalizedMsg) => {
                 // FALLBACK: Handle case where user selected KEYWORD but typed "On Mention (Tag Bot)"
                 if (rule.triggerValue.toLowerCase() === 'on mention (tag bot)') {
                     if (platform === 'whatsapp') {
-                        const mentions = rawMessage?.message?.extendedTextMessage?.contextInfo?.mentionedJid || [];
+                        const msgContent = rawMessage?.message;
+                        const contextInfo = msgContent?.extendedTextMessage?.contextInfo
+                            || msgContent?.imageMessage?.contextInfo
+                            || msgContent?.videoMessage?.contextInfo
+                            || msgContent?.documentMessage?.contextInfo
+                            || msgContent?.audioMessage?.contextInfo
+                            || msgContent?.stickerMessage?.contextInfo
+                            || {};
+                        const mentions = contextInfo?.mentionedJid || [];
                         const botJid = client?.user?.id ? jidNormalizedUser(client.user.id) : null;
                         if (botJid && mentions.includes(botJid)) matched = true;
                     } else if (platform === 'telegram') {
@@ -130,7 +138,12 @@ export const processMessage = async (normalizedMsg) => {
                     if (text.toLowerCase().includes(rule.triggerValue.toLowerCase())) matched = true;
                 }
             } else if (rule.triggerType === 'ALL') {
-                matched = true;
+                // Only match private chats, not group chats
+                if (platform === 'whatsapp') {
+                    if (jid.endsWith('@s.whatsapp.net')) matched = true;
+                } else {
+                    matched = true; // Telegram: match all
+                }
             } else if (rule.triggerType === 'REGEX') {
                 try {
                     const regex = new RegExp(rule.triggerValue, 'i');
@@ -140,7 +153,16 @@ export const processMessage = async (normalizedMsg) => {
                 }
             } else if (rule.triggerType === 'MENTION') {
                 if (platform === 'whatsapp') {
-                    const mentions = rawMessage?.message?.extendedTextMessage?.contextInfo?.mentionedJid || [];
+                    // Extract mentioned JIDs from any message type (text, image, video, etc.)
+                    const msgContent = rawMessage?.message;
+                    const contextInfo = msgContent?.extendedTextMessage?.contextInfo
+                        || msgContent?.imageMessage?.contextInfo
+                        || msgContent?.videoMessage?.contextInfo
+                        || msgContent?.documentMessage?.contextInfo
+                        || msgContent?.audioMessage?.contextInfo
+                        || msgContent?.stickerMessage?.contextInfo
+                        || {};
+                    const mentions = contextInfo?.mentionedJid || [];
                     const botJid = client?.user?.id ? jidNormalizedUser(client.user.id) : null;
                     if (botJid && mentions.includes(botJid)) matched = true;
                 } else if (platform === 'telegram') {

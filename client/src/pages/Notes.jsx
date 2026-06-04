@@ -9,18 +9,19 @@ const Notes = () => {
     const [searchTerm, setSearchTerm] = useState('');
     const [editingId, setEditingId] = useState(null);
 
-    const fetchNotes = React.useCallback(async () => {
+    const fetchNotes = async () => {
         try {
             const res = await api.get('/notes');
             setNotes(res.data);
         } catch (error) {
             console.error('Failed to fetch notes:', error);
         }
-    }, []);
+    };
 
     useEffect(() => {
         fetchNotes();
-    }, [fetchNotes]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     const handleSubmit = async (e) => {
         e.preventDefault();

@@ -15,7 +15,7 @@ const Login = () => {
     const navigate = useNavigate();
     const googleBtnRef = useRef(null);
 
-    if (user) return <Navigate to="/app" />;
+
 
     // ─── Google Identity Services ───────────────────────
     useEffect(() => {
@@ -51,9 +51,9 @@ const Login = () => {
             script.onload = initGoogle;
             document.head.appendChild(script);
         }
-    }, []);
+    }, [GOOGLE_CLIENT_ID, handleGoogleCallback]);
 
-    const handleGoogleCallback = async (response) => {
+    const handleGoogleCallback = React.useCallback(async (response) => {
         setGoogleLoading(true);
         setError('');
         try {
@@ -65,7 +65,7 @@ const Login = () => {
         } finally {
             setGoogleLoading(false);
         }
-    };
+    }, [loginWithToken, navigate]);
 
     // ─── Username/Password Login ──────────────────────
     const handleSubmit = async (e) => {
@@ -78,6 +78,8 @@ const Login = () => {
             setError(err.response?.data?.error || 'Login failed');
         }
     };
+
+    if (user) return <Navigate to="/app" />;
 
     return (
         <div className="min-h-screen flex bg-bone-white font-sans text-gray-800">

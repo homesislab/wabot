@@ -1,6 +1,21 @@
 import { prisma } from '../prisma.js';
 import { logger } from '../config/logger.js';
 
+// ─── Utility: Fetch with Timeout ──────────────────────────────────────────────
+const FETCH_TIMEOUT_MS = 15_000;
+const fetchWithTimeout = async (url, options = {}, timeoutMs = FETCH_TIMEOUT_MS) => {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+        return await fetch(url, { ...options, signal: controller.signal });
+    } finally {
+        clearTimeout(timeoutId);
+    }
+};
+
+// Keys that must never be used in path/query replacement (prototype pollution guard)
+const DANGEROUS_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+
 /**
  * Sanitizes tool name to meet Gemini API requirements.
  * Must start with letter/underscore, contain only alphanumerics/underscore/dot/colon/dash, max 64 chars.
@@ -108,9 +123,11 @@ const runRequest = async (config, args) => {
     let urlString = `${baseUrl}${endpoint}`;
 
     // Replace path variables (e.g., /users/{id})
+    // ✅ Filter dangerous keys to prevent prototype pollution
     for (const [key, value] of Object.entries(args)) {
+        if (DANGEROUS_KEYS.has(key)) continue;
         if (urlString.includes(`{${key}}`)) {
-            urlString = urlString.replace(`{${key}}`, value);
+            urlString = urlString.replace(`{${key}}`, encodeURIComponent(String(value)));
         }
     }
 
@@ -145,17 +162,20 @@ const runRequest = async (config, args) => {
         fetchOptions.body = JSON.stringify(bodyData);
     } else {
         // For GET, add remaining args as query params
+        // ✅ Filter dangerous keys to prevent prototype pollution
         for (const [key, value] of Object.entries(args)) {
+            if (DANGEROUS_KEYS.has(key)) continue;
             // Only add if not used in path replacement
             if (!endpoint.includes(`{${key}}`)) {
-                url.searchParams.append(key, value);
+                url.searchParams.append(key, String(value));
             }
         }
     }
 
     try {
         logger.info(`Tool Execution: ${method} ${url.toString()}`);
-        const response = await fetch(url.toString(), fetchOptions);
+        // ✅ Fetch with timeout to prevent hanging requests
+        const response = await fetchWithTimeout(url.toString(), fetchOptions, FETCH_TIMEOUT_MS);
 
         let data;
         const contentType = response.headers.get("content-type");
@@ -192,14 +212,15 @@ const refreshToolToken = async (toolConfig) => {
         const payload = refreshPayload ? JSON.parse(refreshPayload) : {};
 
         logger.info(`Refreshing token via ${refreshUrl} for ${source} #${id}`);
-        const response = await fetch(refreshUrl, {
+        // ✅ Fetch with timeout to prevent token refresh from hanging
+        const response = await fetchWithTimeout(refreshUrl, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
                 'Accept': 'application/json'
             },
             body: JSON.stringify(payload)
-        });
+        }, FETCH_TIMEOUT_MS);
 
         if (!response.ok) {
             const errText = await response.text();
