@@ -32,6 +32,7 @@ const Sidebar = ({ isOpen, onClose }) => {
     if (user?.role === 'ADMIN') {
         links.push({ path: '/app/logs', label: 'Logs', icon: ScrollText });
         links.push({ path: '/app/users', label: 'User Management', icon: Shield });
+        links.push({ path: '/app/aimodels', label: 'AI Models', icon: Bot });
     }
 
     return (

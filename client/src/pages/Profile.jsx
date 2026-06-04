@@ -6,36 +6,7 @@ import { useAuth } from '../context/AuthContext';
 const Profile = () => {
     const { setUser } = useAuth();
 
-    // Model options per provider
-    const AI_MODELS = {
-        openai: [
-            { value: 'gpt-5.5',       label: 'GPT-5.5 (Terbaru, Pro)' },
-            { value: 'gpt-5.4',       label: 'GPT-5.4 (Agents & Pro)' },
-            { value: 'gpt-5.4-mini',  label: 'GPT-5.4 Mini (Cepat & Hemat)' },
-            { value: 'gpt-4o',        label: 'GPT-4o' },
-            { value: 'gpt-4o-mini',   label: 'GPT-4o Mini' },
-            { value: 'gpt-4-turbo',   label: 'GPT-4 Turbo' },
-            { value: 'gpt-3.5-turbo', label: 'GPT-3.5 Turbo (Paling Hemat)' },
-        ],
-        gemini: [
-            { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash (Terbaru)' },
-            { value: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash' },
-            { value: 'gemini-1.5-pro',   label: 'Gemini 1.5 Pro (Terbaik)' },
-            { value: 'gemini-1.5-flash', label: 'Gemini 1.5 Flash (Cepat)' },
-        ],
-        ollama: [
-            { value: 'llama3', label: 'Llama 3' },
-            { value: 'llama3.1', label: 'Llama 3.1' },
-            { value: 'llama3.2', label: 'Llama 3.2' },
-            { value: 'mistral', label: 'Mistral' },
-            { value: 'gemma', label: 'Gemma' },
-            { value: 'gemma2', label: 'Gemma 2' },
-            { value: 'qwen', label: 'Qwen' },
-            { value: 'qwen2.5:1.5b', label: 'Qwen 2.5 (1.5B)' },
-            { value: 'phi3', label: 'Phi-3' },
-        ],
-    };
-
+    const [aiModels, setAiModels] = useState({});
     const [profile, setProfile] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
@@ -54,8 +25,12 @@ const Profile = () => {
 
     const fetchProfile = React.useCallback(async () => {
         try {
-            const res = await api.get('/auth/me');
+            const [res, modelsRes] = await Promise.all([
+                api.get('/auth/me'),
+                api.get('/aimodels?group=true').catch(() => ({ data: {} }))
+            ]);
             setProfile(res.data);
+            setAiModels(modelsRes.data || {});
             setEditForm({
                 email: res.data.email || '',
                 phone: res.data.phone || '',
@@ -492,7 +467,7 @@ const Profile = () => {
                                                 className="w-full px-4 py-2 border rounded-xl outline-none focus:ring-2 focus:ring-sisia-primary/20 focus:border-sisia-primary bg-white"
                                             >
                                                 <option value="">-- Default --</option>
-                                                {(AI_MODELS[editForm.aiProvider] || []).map(m => (
+                                                {(aiModels[editForm.aiProvider] || []).map(m => (
                                                     <option key={m.value} value={m.value}>{m.label}</option>
                                                 ))}
                                             </select>
