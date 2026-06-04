@@ -17,6 +17,20 @@ const Login = () => {
 
 
 
+    const handleGoogleCallback = React.useCallback(async (response) => {
+        setGoogleLoading(true);
+        setError('');
+        try {
+            const res = await api.post('/auth/google', { credential: response.credential });
+            loginWithToken(res.data);
+            navigate('/app');
+        } catch (err) {
+            setError(err.response?.data?.error || 'Login Google gagal');
+        } finally {
+            setGoogleLoading(false);
+        }
+    }, [loginWithToken, navigate]);
+
     // ─── Google Identity Services ───────────────────────
     useEffect(() => {
         if (!GOOGLE_CLIENT_ID) return;
@@ -52,20 +66,6 @@ const Login = () => {
             document.head.appendChild(script);
         }
     }, [GOOGLE_CLIENT_ID, handleGoogleCallback]);
-
-    const handleGoogleCallback = React.useCallback(async (response) => {
-        setGoogleLoading(true);
-        setError('');
-        try {
-            const res = await api.post('/auth/google', { credential: response.credential });
-            loginWithToken(res.data);
-            navigate('/app');
-        } catch (err) {
-            setError(err.response?.data?.error || 'Login Google gagal');
-        } finally {
-            setGoogleLoading(false);
-        }
-    }, [loginWithToken, navigate]);
 
     // ─── Username/Password Login ──────────────────────
     const handleSubmit = async (e) => {

@@ -52,10 +52,6 @@ const Users = () => {
 
     const { user: currentUser } = useAuth();
 
-    useEffect(() => {
-        fetchUsers();
-    }, []);
-
     const fetchUsers = async () => {
         setLoading(true);
         try {
@@ -67,6 +63,10 @@ const Users = () => {
             setLoading(false);
         }
     };
+
+    useEffect(() => {
+        fetchUsers();
+    }, []);
 
     const handleCreateUser = async (e) => {
         e.preventDefault();
