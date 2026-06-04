@@ -20,11 +20,17 @@ export const createRule = async (req, res) => {
             filterGroupId, credentialId, miniAppId
         } = req.body;
 
+        // triggerValue must never be null — auto-fill for types that don't use it
+        const resolvedTriggerValue =
+            (triggerType === 'ALL' || triggerType === 'MENTION')
+                ? (triggerValue || triggerType)
+                : triggerValue;
+
         const rule = await prisma.rule.create({
             data: {
                 name,
                 triggerType,
-                triggerValue,
+                triggerValue: resolvedTriggerValue,
                 actionType,
                 apiUrl: apiUrl || null,
                 apiMethod: apiMethod || 'POST',
@@ -70,6 +76,13 @@ export const updateRule = async (req, res) => {
                     data[field] = req.body[field] === '' ? null : req.body[field];
                 }
             }
+        }
+
+        // Ensure triggerValue is never null for ALL/MENTION types
+        const effectiveTriggerType = data.triggerType || rule.triggerType;
+        if ((effectiveTriggerType === 'ALL' || effectiveTriggerType === 'MENTION') &&
+            (data.triggerValue === null || data.triggerValue === undefined)) {
+            data.triggerValue = effectiveTriggerType;
         }
 
         const updatedRule = await prisma.rule.update({
