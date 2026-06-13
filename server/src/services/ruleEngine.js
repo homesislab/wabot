@@ -14,6 +14,37 @@ import { executeApp } from '../apps/AppExecutor.js';
 import { getRegistryForUser } from '../apps/AppRegistry.js';
 import { setAppSession, getAppSession, clearAppSession } from '../apps/AppSessionManager.js';
 
+// ─── SSRF-safe outbound URL validation (shared guard for webhook API_CALL) ───
+const ALLOWED_OUTBOUND_PROTOCOLS = new Set(['https:']);
+const PRIVATE_IP_REGEX = /^(localhost|127\.|10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|169\.254\.|::1$|fc00:|fe80:)/i;
+
+const validateOutboundUrl = (urlString) => {
+    let parsed;
+    try {
+        parsed = new URL(urlString);
+    } catch {
+        throw new Error(`Invalid URL: ${urlString}`);
+    }
+    if (!ALLOWED_OUTBOUND_PROTOCOLS.has(parsed.protocol)) {
+        throw new Error(`Protocol not allowed: ${parsed.protocol}`);
+    }
+    if (PRIVATE_IP_REGEX.test(parsed.hostname)) {
+        throw new Error(`Access to internal network is blocked: ${parsed.hostname}`);
+    }
+    return parsed.toString();
+};
+
+// fetch with an AbortController timeout (default 15s) so a slow webhook can't hang the worker
+const fetchWithTimeout = async (url, options = {}, timeoutMs = 15_000) => {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+        return await fetch(url, { ...options, signal: controller.signal });
+    } finally {
+        clearTimeout(timeoutId);
+    }
+};
+
 export const processMessage = async (normalizedMsg) => {
     try {
         messagesReceivedTotal.inc();
@@ -132,7 +163,6 @@ export const processMessage = async (normalizedMsg) => {
                     } else if (platform === 'telegram') {
                         const botUser = normalizedMsg.botUsername;
                         if (botUser && text.includes(`@${botUser}`)) matched = true;
-                        else if (text.includes('@')) matched = true; // Fallback
                     }
                 } else {
                     if (text.toLowerCase().includes(rule.triggerValue.toLowerCase())) matched = true;
@@ -168,14 +198,13 @@ export const processMessage = async (normalizedMsg) => {
                 } else if (platform === 'telegram') {
                     const botUser = normalizedMsg.botUsername;
                     if (botUser && text.includes(`@${botUser}`)) matched = true;
-                    else if (text.includes('@')) matched = true; // Fallback
                 }
             }
 
             if (matched) {
                 logger.info(`Rule ${rule.id} matched for session ${sessionId}`);
                 rulesTriggeredTotal.inc({ action_type: rule.actionType });
-                executeAction(rule, normalizedMsg);
+                await executeAction(rule, normalizedMsg);
                 return true;
             }
         }
@@ -282,15 +311,18 @@ const executeAction = async (rule, normalizedMsg) => {
             const method = rule.apiMethod || 'POST';
             const headers = { 'Content-Type': 'application/json' };
 
-            // Inject Credential if available
+            // Inject Credential if available.
+            // Handle BEARER type first (independent of location), then HEADER/QUERY placement.
+            // QUERY key & value are URL-encoded to avoid breaking the URL on special characters.
             if (rule.credential) {
-                if (rule.credential.location === 'HEADER' && rule.credential.key) {
-                    headers[rule.credential.key] = rule.credential.value;
-                } else if (rule.credential.location === 'QUERY') {
+                const cred = rule.credential;
+                if (cred.type === 'BEARER') {
+                    headers['Authorization'] = `Bearer ${cred.value}`;
+                } else if (cred.location === 'HEADER' && cred.key) {
+                    headers[cred.key] = cred.value;
+                } else if (cred.location === 'QUERY' && cred.key) {
                     const separator = url.includes('?') ? '&' : '?';
-                    url += `${separator}${rule.credential.key}=${rule.credential.value}`;
-                } else if (rule.credential.type === 'BEARER') {
-                    headers['Authorization'] = `Bearer ${rule.credential.value}`;
+                    url += `${separator}${encodeURIComponent(cred.key)}=${encodeURIComponent(cred.value)}`;
                 }
             }
 
@@ -303,11 +335,44 @@ const executeAction = async (rule, normalizedMsg) => {
                 options.body = JSON.stringify(payload);
             }
 
-            const response = await fetch(url, options); // Use dynamic URL
+            // SSRF guard: block internal/private targets and non-HTTPS before fetching
+            let safeUrl;
+            try {
+                safeUrl = validateOutboundUrl(url);
+            } catch (e) {
+                logger.error(`Rule ${rule.id} API_CALL blocked by SSRF guard: ${e.message}`);
+                await messageAdapter.sendMessage(
+                    normalizedMsg,
+                    { text: `⚠️ *System Error*: Webhook URL is not allowed (must be a public HTTPS endpoint).` },
+                    rule.userId
+                );
+                return;
+            }
+
+            const response = await fetchWithTimeout(safeUrl, options); // Use validated URL + timeout
             apiCallsTotal.inc({ method: rule.apiMethod || 'POST' });
 
-            const data = await response.json();
-            logger.info(`Rule ${rule.id} API executed to ${url}. Status: ${response.status}`);
+            if (!response.ok) {
+                logger.warn(`Rule ${rule.id} API returned non-OK status ${response.status} from ${safeUrl}`);
+            }
+
+            // Safe response parsing: only parse JSON when the body is actually JSON
+            let data = null;
+            const contentType = response.headers.get('content-type') || '';
+            if (contentType.includes('application/json')) {
+                try {
+                    data = await response.json();
+                } catch (e) {
+                    logger.warn(`Rule ${rule.id} failed to parse JSON response: ${e.message}`);
+                }
+            } else {
+                const bodyText = await response.text().catch(() => '');
+                if (bodyText) data = { message: bodyText };
+            }
+            logger.info(`Rule ${rule.id} API executed to ${safeUrl}. Status: ${response.status}`);
+
+            // Credit is consumed once for a successful API_CALL action
+            await creditService.deductCredit(rule.userId);
 
             // Optional: If the API returns a 'message' field, reply with it (Fonnte-like behavior)
             // Filter out generic automation acknowledgment messages (n8n, Make, Zapier, etc.)
@@ -342,6 +407,7 @@ const executeAction = async (rule, normalizedMsg) => {
                 await messageAdapter.sendMessage(normalizedMsg, { text: rule.responseContent }, rule.userId);
             }
 
+            await creditService.deductCredit(rule.userId);
             logger.info(`Rule ${rule.id} auto-reply sent to ${jid}`);
         } catch (error) {
             logger.error(`Rule ${rule.id} auto-reply failed: ${error.message}`);
@@ -382,6 +448,7 @@ const executeAction = async (rule, normalizedMsg) => {
                 } else {
                     await messageAdapter.sendMessage(normalizedMsg, { text: response }, rule.userId);
                 }
+                await creditService.deductCredit(rule.userId);
                 logger.info(`Rule ${rule.id} AI response sent to ${jid}`);
             } else {
                 logger.warn(`Rule ${rule.id} AI response generation failed`);
@@ -408,6 +475,7 @@ const executeAction = async (rule, normalizedMsg) => {
                 `✅ *${manifest.icon || ''} ${manifest.name}* siap!\n\nSilahkan ikuti instruksi selanjutnya. Sesi aktif 5 menit.`;
 
             await messageAdapter.sendMessage(normalizedMsg, { text: activationMsg }, rule.userId);
+            await creditService.deductCredit(rule.userId);
             logger.info(`Rule ${rule.id}: Activated Mini App '${rule.miniAppId}' for ${jid}`);
         } catch (error) {
             logger.error(`Rule ${rule.id} ACTIVATE_MINI_APP failed: ${error.message}`);

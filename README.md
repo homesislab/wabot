@@ -30,11 +30,15 @@ The easiest way to run Wabot is using Docker Compose.
     docker-compose up -d --build
     ```
 
-3.  Access the application:
-    - **Dashboard**: [http://localhost](http://localhost)
-    - **API/Server**: [http://localhost:3002](http://localhost:3002)
+4.  Access the application (ports as mapped in `docker-compose.yml`):
+    - **Dashboard**: [http://localhost:8002](http://localhost:8002)
+    - **API/Server**: [http://localhost:3003](http://localhost:3003)
 
 ### Default Credentials
+> ⚠️ **Security:** The default admin account below is for the very first login only.
+> **Change the password immediately** after logging in, and never ship these defaults
+> to production. Admin authorization is enforced server-side (role in DB), not by the
+> frontend `VITE_ADMIN_*` build args.
 - **Username**: `admin`
 - **Password**: `adminpassword`
 
