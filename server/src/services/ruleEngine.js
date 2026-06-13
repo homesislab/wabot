@@ -45,15 +45,36 @@ const fetchWithTimeout = async (url, options = {}, timeoutMs = 15_000) => {
     }
 };
 
+const getBotJids = (client) => {
+    const jids = [];
+    if (client?.user?.id) {
+        jids.push(jidNormalizedUser(client.user.id));
+    }
+    if (client?.user?.lid) {
+        jids.push(jidNormalizedUser(client.user.lid));
+    }
+    if (client?.authState?.creds?.me?.id) {
+        jids.push(jidNormalizedUser(client.authState.creds.me.id));
+    }
+    if (client?.authState?.creds?.me?.lid) {
+        jids.push(jidNormalizedUser(client.authState.creds.me.lid));
+    }
+    const uniqueJids = [...new Set(jids)];
+    const cleanNumbers = uniqueJids.map(j => j.split('@')[0]);
+    return { jids: uniqueJids, cleanNumbers };
+};
+
 export const processMessage = async (normalizedMsg) => {
     try {
         messagesReceivedTotal.inc();
         const { platform, sessionId, participant, jid, text, client, rawMessage } = normalizedMsg;
 
-        // Cek apakah ini voice note (audio)
-        const isVoiceNote = rawMessage?.message?.audioMessage?.ptt === true;
+        // Cek apakah ini voice note (audio) atau file audio
+        const isVoiceNote = rawMessage?.message?.audioMessage?.ptt === true ||
+                            !!(rawMessage?.message?.audioMessage) ||
+                            !!(rawMessage?.message?.documentMessage && rawMessage?.message?.documentMessage?.mimetype?.startsWith('audio/'));
 
-        // Hanya skip jika teks kosong DAN bukan voice note
+        // Hanya skip jika teks kosong DAN bukan audio
         if (!text && !isVoiceNote) return;
 
         // Deduplication using message ID (Redis instead of memory Set)
@@ -144,11 +165,65 @@ export const processMessage = async (normalizedMsg) => {
             }
 
             let matched = false;
+            const triggerTypes = rule.triggerType ? rule.triggerType.split(',').map(t => t.trim()).filter(Boolean) : [];
 
-            if (rule.triggerType === 'KEYWORD') {
-                // FALLBACK: Handle case where user selected KEYWORD but typed "On Mention (Tag Bot)"
-                if (rule.triggerValue.toLowerCase() === 'on mention (tag bot)') {
+            for (const triggerType of triggerTypes) {
+                if (triggerType === 'KEYWORD') {
+                    // FALLBACK: Handle case where user selected KEYWORD but typed "On Mention (Tag Bot)"
+                    if (rule.triggerValue.toLowerCase() === 'on mention (tag bot)') {
+                        if (platform === 'whatsapp') {
+                            const msgContent = rawMessage?.message;
+                            const contextInfo = msgContent?.extendedTextMessage?.contextInfo
+                                || msgContent?.imageMessage?.contextInfo
+                                || msgContent?.videoMessage?.contextInfo
+                                || msgContent?.documentMessage?.contextInfo
+                                || msgContent?.audioMessage?.contextInfo
+                                || msgContent?.stickerMessage?.contextInfo
+                                || {};
+                            const mentions = contextInfo?.mentionedJid || [];
+                            const botJids = getBotJids(client);
+                            const quotedParticipant = contextInfo?.participant;
+                            const isReplyToBot = quotedParticipant && botJids.jids.includes(jidNormalizedUser(quotedParticipant));
+                            
+                            if (botJids.jids.some(bj => mentions.includes(bj))) matched = true;
+                            else if (isReplyToBot) matched = true;
+                            else if (text && botJids.cleanNumbers.some(num => text.includes('@' + num))) matched = true;
+                            else if (text && client?.user?.name && text.includes('@' + client.user.name)) matched = true;
+                        } else if (platform === 'telegram') {
+                            const botUser = normalizedMsg.botUsername;
+                            const replyToMessage = rawMessage?.reply_to_message;
+                            const isReplyToBot = replyToMessage && replyToMessage.from?.username === botUser;
+                            
+                            if (botUser && text && text.includes(`@${botUser}`)) matched = true;
+                            else if (isReplyToBot) matched = true;
+                            else if (text && text.includes('@')) matched = true; // Fallback
+                        }
+                    } else {
+                        if (text && text.toLowerCase().includes(rule.triggerValue.toLowerCase())) matched = true;
+                    }
+                } else if (triggerType === 'ALL') {
+                    // Only match private chats, not group chats
                     if (platform === 'whatsapp') {
+                        if (jid.endsWith('@s.whatsapp.net') || jid.endsWith('@lid')) matched = true;
+                    } else {
+                        matched = true; // Telegram: match all
+                    }
+                } else if (triggerType === 'DIRECT_MESSAGE') {
+                    if (platform === 'whatsapp') {
+                        if (jid.endsWith('@s.whatsapp.net') || jid.endsWith('@lid')) matched = true;
+                    } else if (platform === 'telegram') {
+                        if (rawMessage?.chat?.type === 'private') matched = true;
+                    }
+                } else if (triggerType === 'REGEX') {
+                    try {
+                        const regex = new RegExp(rule.triggerValue, 'i');
+                        if (text && regex.test(text)) matched = true;
+                    } catch (e) {
+                        logger.error(`Invalid Regex for rule ${rule.id}: ${e.message}`);
+                    }
+                } else if (triggerType === 'MENTION') {
+                    if (platform === 'whatsapp') {
+                        // Extract mentioned JIDs from any message type (text, image, video, etc.)
                         const msgContent = rawMessage?.message;
                         const contextInfo = msgContent?.extendedTextMessage?.contextInfo
                             || msgContent?.imageMessage?.contextInfo
@@ -158,47 +233,27 @@ export const processMessage = async (normalizedMsg) => {
                             || msgContent?.stickerMessage?.contextInfo
                             || {};
                         const mentions = contextInfo?.mentionedJid || [];
-                        const botJid = client?.user?.id ? jidNormalizedUser(client.user.id) : null;
-                        if (botJid && mentions.includes(botJid)) matched = true;
+                        const botJids = getBotJids(client);
+                        const quotedParticipant = contextInfo?.participant;
+                        const isReplyToBot = quotedParticipant && botJids.jids.includes(jidNormalizedUser(quotedParticipant));
+                        
+                        logger.info(`[DEBUG MENTION] MsgText: ${text}, BotJIDs: ${JSON.stringify(botJids)}, Mentions: ${JSON.stringify(mentions)}, QuotedParticipant: ${quotedParticipant}, IsReplyToBot: ${isReplyToBot}`);
+                        
+                        if (botJids.jids.some(bj => mentions.includes(bj))) matched = true;
+                        else if (isReplyToBot) matched = true;
+                        else if (text && botJids.cleanNumbers.some(num => text.includes('@' + num))) matched = true;
+                        else if (text && client?.user?.name && text.includes('@' + client.user.name)) matched = true;
                     } else if (platform === 'telegram') {
                         const botUser = normalizedMsg.botUsername;
-                        if (botUser && text.includes(`@${botUser}`)) matched = true;
+                        const replyToMessage = rawMessage?.reply_to_message;
+                        const isReplyToBot = replyToMessage && replyToMessage.from?.username === botUser;
+                        
+                        if (botUser && text && text.includes(`@${botUser}`)) matched = true;
+                        else if (isReplyToBot) matched = true;
                     }
-                } else {
-                    if (text.toLowerCase().includes(rule.triggerValue.toLowerCase())) matched = true;
                 }
-            } else if (rule.triggerType === 'ALL') {
-                // Only match private chats, not group chats
-                if (platform === 'whatsapp') {
-                    if (jid.endsWith('@s.whatsapp.net')) matched = true;
-                } else {
-                    matched = true; // Telegram: match all
-                }
-            } else if (rule.triggerType === 'REGEX') {
-                try {
-                    const regex = new RegExp(rule.triggerValue, 'i');
-                    if (regex.test(text)) matched = true;
-                } catch (e) {
-                    logger.error(`Invalid Regex for rule ${rule.id}: ${e.message}`);
-                }
-            } else if (rule.triggerType === 'MENTION') {
-                if (platform === 'whatsapp') {
-                    // Extract mentioned JIDs from any message type (text, image, video, etc.)
-                    const msgContent = rawMessage?.message;
-                    const contextInfo = msgContent?.extendedTextMessage?.contextInfo
-                        || msgContent?.imageMessage?.contextInfo
-                        || msgContent?.videoMessage?.contextInfo
-                        || msgContent?.documentMessage?.contextInfo
-                        || msgContent?.audioMessage?.contextInfo
-                        || msgContent?.stickerMessage?.contextInfo
-                        || {};
-                    const mentions = contextInfo?.mentionedJid || [];
-                    const botJid = client?.user?.id ? jidNormalizedUser(client.user.id) : null;
-                    if (botJid && mentions.includes(botJid)) matched = true;
-                } else if (platform === 'telegram') {
-                    const botUser = normalizedMsg.botUsername;
-                    if (botUser && text.includes(`@${botUser}`)) matched = true;
-                }
+
+                if (matched) break; // Stop checking other trigger types for this rule if matched
             }
 
             if (matched) {
@@ -229,7 +284,8 @@ const executeAction = async (rule, normalizedMsg) => {
             const messageText = text || '';
             let matches = null;
 
-            if (rule.triggerType === 'REGEX') {
+            const isRegex = rule.triggerType ? rule.triggerType.split(',').map(t => t.trim()).includes('REGEX') : false;
+            if (isRegex) {
                 try {
                     const regex = new RegExp(rule.triggerValue, 'i');
                     matches = messageText.match(regex);
