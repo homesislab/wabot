@@ -46,6 +46,88 @@ const isBotMentioned = (client, mentions) => {
     });
 };
 
+// Parse triggerType menjadi daftar tipe. Mendukung MULTI trigger type yang
+// disimpan sebagai string dipisah koma, mis. "DIRECT_MESSAGE,MENTION".
+const ruleTriggerTypes = (rule) =>
+    String(rule?.triggerType || '')
+        .split(',')
+        .map((s) => s.trim().toUpperCase())
+        .filter(Boolean);
+
+const ruleHasTriggerType = (rule, type) =>
+    ruleTriggerTypes(rule).includes(String(type).toUpperCase());
+
+// Ekstrak daftar mentionedJid dari semua tipe pesan WA (text, image, video, dll).
+const extractMentions = (rawMessage) => {
+    const msgContent = rawMessage?.message;
+    if (!msgContent) return [];
+    const contextInfo = msgContent?.extendedTextMessage?.contextInfo
+        || msgContent?.imageMessage?.contextInfo
+        || msgContent?.videoMessage?.contextInfo
+        || msgContent?.documentMessage?.contextInfo
+        || msgContent?.audioMessage?.contextInfo
+        || msgContent?.stickerMessage?.contextInfo
+        || {};
+    return contextInfo?.mentionedJid || [];
+};
+
+// Apakah chat ini direct message (japri), bukan group?
+const isDirectMessage = (normalizedMsg) => {
+    const { platform, jid, rawMessage } = normalizedMsg;
+    if (platform === 'whatsapp') {
+        // Group WA berakhiran @g.us; japri @s.whatsapp.net.
+        return typeof jid === 'string' && jid.endsWith('@s.whatsapp.net');
+    }
+    if (platform === 'telegram') {
+        return rawMessage?.chat?.type === 'private';
+    }
+    return false;
+};
+
+// Apakah BOT di-mention/di-tag pada pesan ini?
+const matchMention = (normalizedMsg) => {
+    const { platform, text, client, rawMessage } = normalizedMsg;
+    if (platform === 'whatsapp') {
+        return isBotMentioned(client, extractMentions(rawMessage));
+    }
+    if (platform === 'telegram') {
+        const botUser = normalizedMsg.botUsername;
+        return !!(botUser && text && text.includes(`@${botUser}`));
+    }
+    return false;
+};
+
+// Cek apakah SATU tipe trigger cocok dengan pesan saat ini.
+const matchTriggerType = (type, rule, normalizedMsg) => {
+    const { platform, text } = normalizedMsg;
+    switch (String(type).toUpperCase()) {
+        case 'KEYWORD': {
+            // FALLBACK: user pilih KEYWORD tapi mengetik "On Mention (Tag Bot)"
+            if ((rule.triggerValue || '').toLowerCase() === 'on mention (tag bot)') {
+                return matchMention(normalizedMsg);
+            }
+            return matchKeyword(text, rule.triggerValue, 'contains');
+        }
+        case 'ALL':
+            // Hanya cocokkan chat japri (bukan group) untuk WhatsApp; Telegram cocok semua.
+            if (platform === 'whatsapp') return isDirectMessage(normalizedMsg);
+            return true;
+        case 'DIRECT_MESSAGE':
+            return isDirectMessage(normalizedMsg);
+        case 'REGEX':
+            try {
+                return new RegExp(rule.triggerValue, 'i').test(text);
+            } catch (e) {
+                logger.error(`Invalid Regex for rule ${rule.id}: ${e.message}`);
+                return false;
+            }
+        case 'MENTION':
+            return matchMention(normalizedMsg);
+        default:
+            return false;
+    }
+};
+
 export const processMessage = async (normalizedMsg) => {
     try {
         messagesReceivedTotal.inc();
@@ -149,61 +231,12 @@ export const processMessage = async (normalizedMsg) => {
                 if (jid !== rule.filterGroupId) continue; // Skip if not the target group
             }
 
-            let matched = false;
-
-            if (rule.triggerType === 'KEYWORD') {
-                // FALLBACK: Handle case where user selected KEYWORD but typed "On Mention (Tag Bot)"
-                if (rule.triggerValue.toLowerCase() === 'on mention (tag bot)') {
-                    if (platform === 'whatsapp') {
-                        const msgContent = rawMessage?.message;
-                        const contextInfo = msgContent?.extendedTextMessage?.contextInfo
-                            || msgContent?.imageMessage?.contextInfo
-                            || msgContent?.videoMessage?.contextInfo
-                            || msgContent?.documentMessage?.contextInfo
-                            || msgContent?.audioMessage?.contextInfo
-                            || msgContent?.stickerMessage?.contextInfo
-                            || {};
-                        const mentions = contextInfo?.mentionedJid || [];
-                        if (isBotMentioned(client, mentions)) matched = true;
-                    } else if (platform === 'telegram') {
-                        const botUser = normalizedMsg.botUsername;
-                        if (botUser && text.includes(`@${botUser}`)) matched = true;
-                    }
-                } else {
-                    if (matchKeyword(text, rule.triggerValue, 'contains')) matched = true;
-                }
-            } else if (rule.triggerType === 'ALL') {
-                // Only match private chats, not group chats
-                if (platform === 'whatsapp') {
-                    if (jid.endsWith('@s.whatsapp.net')) matched = true;
-                } else {
-                    matched = true; // Telegram: match all
-                }
-            } else if (rule.triggerType === 'REGEX') {
-                try {
-                    const regex = new RegExp(rule.triggerValue, 'i');
-                    if (regex.test(text)) matched = true;
-                } catch (e) {
-                    logger.error(`Invalid Regex for rule ${rule.id}: ${e.message}`);
-                }
-            } else if (rule.triggerType === 'MENTION') {
-                if (platform === 'whatsapp') {
-                    // Extract mentioned JIDs from any message type (text, image, video, etc.)
-                    const msgContent = rawMessage?.message;
-                    const contextInfo = msgContent?.extendedTextMessage?.contextInfo
-                        || msgContent?.imageMessage?.contextInfo
-                        || msgContent?.videoMessage?.contextInfo
-                        || msgContent?.documentMessage?.contextInfo
-                        || msgContent?.audioMessage?.contextInfo
-                        || msgContent?.stickerMessage?.contextInfo
-                        || {};
-                    const mentions = contextInfo?.mentionedJid || [];
-                    if (isBotMentioned(client, mentions)) matched = true;
-                } else if (platform === 'telegram') {
-                    const botUser = normalizedMsg.botUsername;
-                    if (botUser && text.includes(`@${botUser}`)) matched = true;
-                }
-            }
+            // Dukungan MULTI Trigger Type: triggerType bisa berisi beberapa tipe
+            // dipisah koma, mis. "DIRECT_MESSAGE,MENTION". Rule cocok jika SALAH SATU
+            // tipe cocok (OR). Ini memperbaiki kasus japri/mention yang sebelumnya
+            // tidak direspon karena nilai gabungan tak cocok dengan satu pun cabang.
+            const types = ruleTriggerTypes(rule);
+            const matched = types.some((type) => matchTriggerType(type, rule, normalizedMsg));
 
             if (matched) {
                 logger.info(`Rule ${rule.id} matched for session ${sessionId}`);
@@ -233,7 +266,7 @@ const executeAction = async (rule, normalizedMsg) => {
             const messageText = text || '';
             let matches = null;
 
-            if (rule.triggerType === 'REGEX') {
+            if (ruleHasTriggerType(rule, 'REGEX')) {
                 try {
                     const regex = new RegExp(rule.triggerValue, 'i');
                     matches = messageText.match(regex);

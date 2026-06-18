@@ -20,11 +20,16 @@ export const createRule = async (req, res) => {
             filterGroupId, credentialId, miniAppId
         } = req.body;
 
-        // triggerValue must never be null — auto-fill for types that don't use it
-        const resolvedTriggerValue =
-            (triggerType === 'ALL' || triggerType === 'MENTION')
-                ? (triggerValue || triggerType)
-                : triggerValue;
+        // triggerValue must never be null — auto-fill for types that don't use it.
+        // triggerType bisa MULTI (dipisah koma), mis. "DIRECT_MESSAGE,MENTION".
+        // triggerValue hanya wajib bila ada tipe KEYWORD atau REGEX.
+        const needsValue = String(triggerType || '')
+            .split(',')
+            .map((s) => s.trim().toUpperCase())
+            .some((t) => t === 'KEYWORD' || t === 'REGEX');
+        const resolvedTriggerValue = needsValue
+            ? triggerValue
+            : (triggerValue || triggerType);
 
         const rule = await prisma.rule.create({
             data: {
@@ -78,9 +83,15 @@ export const updateRule = async (req, res) => {
             }
         }
 
-        // Ensure triggerValue is never null for ALL/MENTION types
+        // Ensure triggerValue is never null for types that don't use a value.
+        // triggerType bisa MULTI (dipisah koma); triggerValue hanya wajib bila ada
+        // tipe KEYWORD atau REGEX. Untuk ALL/MENTION/DIRECT_MESSAGE, auto-isi.
         const effectiveTriggerType = data.triggerType || rule.triggerType;
-        if ((effectiveTriggerType === 'ALL' || effectiveTriggerType === 'MENTION') &&
+        const effectiveNeedsValue = String(effectiveTriggerType || '')
+            .split(',')
+            .map((s) => s.trim().toUpperCase())
+            .some((t) => t === 'KEYWORD' || t === 'REGEX');
+        if (!effectiveNeedsValue &&
             (data.triggerValue === null || data.triggerValue === undefined)) {
             data.triggerValue = effectiveTriggerType;
         }

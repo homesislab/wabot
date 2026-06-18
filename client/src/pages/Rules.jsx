@@ -238,19 +238,40 @@ const Rules = () => {
                     )}
 
                     <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Trigger Type</label>
-                        <select className="w-full border p-2 rounded-lg outline-none focus:ring-2 focus:ring-sisia-primary" value={formData.triggerType} onChange={e => setFormData({ ...formData, triggerType: e.target.value })}>
-                            <option value="KEYWORD">Keyword Includes</option>
-                            <option value="ALL">All Messages (Default)</option>
-                            <option value="REGEX">Regex Match</option>
-                            <option value="MENTION">On Mention (Tag Bot)</option>
-                        </select>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Trigger Type <span className="text-xs text-gray-400 font-normal">(bisa pilih lebih dari satu)</span></label>
+                        <div className="grid grid-cols-2 gap-2">
+                            {[
+                                { value: 'KEYWORD', label: 'Keyword Includes' },
+                                { value: 'ALL', label: 'All Messages (Default)' },
+                                { value: 'REGEX', label: 'Regex Match' },
+                                { value: 'MENTION', label: 'On Mention (Tag Bot)' },
+                                { value: 'DIRECT_MESSAGE', label: 'Direct Message (Japri)' },
+                            ].map(opt => {
+                                const selected = String(formData.triggerType || '').split(',').map(s => s.trim()).filter(Boolean);
+                                const isChecked = selected.includes(opt.value);
+                                return (
+                                    <label key={opt.value} className={`p-2 border rounded-lg cursor-pointer flex items-center gap-2 text-sm ${isChecked ? 'bg-emerald-50 border-sisia-primary text-sisia-primary' : 'hover:bg-gray-50'}`}>
+                                        <input
+                                            type="checkbox"
+                                            checked={isChecked}
+                                            onChange={() => {
+                                                const next = isChecked
+                                                    ? selected.filter(v => v !== opt.value)
+                                                    : [...selected, opt.value];
+                                                setFormData({ ...formData, triggerType: next.join(',') });
+                                            }}
+                                        />
+                                        {opt.label}
+                                    </label>
+                                );
+                            })}
+                        </div>
                     </div>
 
-                    {(formData.triggerType !== 'ALL' && formData.triggerType !== 'MENTION') && (
+                    {String(formData.triggerType || '').split(',').map(s => s.trim().toUpperCase()).some(t => t === 'KEYWORD' || t === 'REGEX') && (
                         <div className="md:col-span-2">
                             <label className="block text-sm font-medium text-gray-700 mb-1">Trigger Value</label>
-                            <input className="w-full border p-2 rounded-lg outline-none focus:ring-2 focus:ring-sisia-primary" placeholder={formData.triggerType === 'REGEX' ? '^Hello.*' : 'hello'} value={formData.triggerValue} onChange={e => setFormData({ ...formData, triggerValue: e.target.value })} required />
+                            <input className="w-full border p-2 rounded-lg outline-none focus:ring-2 focus:ring-sisia-primary" placeholder={String(formData.triggerType || '').toUpperCase().includes('REGEX') ? '^Hello.*' : 'hello'} value={formData.triggerValue} onChange={e => setFormData({ ...formData, triggerValue: e.target.value })} required />
                         </div>
                     )}
 
