@@ -10,9 +10,9 @@ import * as messageAdapter from './messageAdapter.js';
 import { redis } from '../config/redis.js';
 import { messagesReceivedTotal, rulesTriggeredTotal, aiGenerationsTotal, apiCallsTotal, deduplicatedMessagesTotal } from '../config/metrics.js';
 import { route } from '../apps/AppRouter.js';
-import { executeApp } from '../apps/AppExecutor.js';
+import { executeApp, activateMiniApp } from '../apps/AppExecutor.js';
 import { getRegistryForUser } from '../apps/AppRegistry.js';
-import { setAppSession, getAppSession, clearAppSession } from '../apps/AppSessionManager.js';
+import { getAppSession, clearAppSession } from '../apps/AppSessionManager.js';
 
 // ─── SSRF-safe outbound URL validation (shared guard for webhook API_CALL) ───
 const ALLOWED_OUTBOUND_PROTOCOLS = new Set(['https:']);
@@ -118,7 +118,12 @@ export const processMessage = async (normalizedMsg) => {
         const userRegistry = await getRegistryForUser(userId);
         const { manifest: matchedManifest, phase } = await route(normalizedMsg, userRegistry, userId);
         if (matchedManifest) {
-            await executeApp(matchedManifest, normalizedMsg, userId, phase);
+            // Satu jalur aktivasi: fase ACTIVATION selalu lewat activateMiniApp()
+            if (phase === 'ACTIVATION') {
+                await activateMiniApp(matchedManifest, normalizedMsg, userId);
+            } else {
+                await executeApp(matchedManifest, normalizedMsg, userId, phase);
+            }
             return true; // Stop — jangan proses Auto Reply rules
         }
 
@@ -467,14 +472,9 @@ const executeAction = async (rule, normalizedMsg) => {
                 return;
             }
 
-            // Set Redis session untuk user+contact ini
-            await setAppSession(rule.userId, normalizedMsg.participant || jid, rule.miniAppId);
-
-            // Kirim pesan aktivasi dari manifest
-            const activationMsg = manifest.activationMessage ||
-                `✅ *${manifest.icon || ''} ${manifest.name}* siap!\n\nSilahkan ikuti instruksi selanjutnya. Sesi aktif 5 menit.`;
-
-            await messageAdapter.sendMessage(normalizedMsg, { text: activationMsg }, rule.userId);
+            // Satu jalur aktivasi: pakai activateMiniApp() yang sama dengan App Framework
+            // (set Redis session + kirim pesan aktivasi). Tidak ada lagi duplikasi logika di sini.
+            await activateMiniApp(manifest, normalizedMsg, rule.userId);
             await creditService.deductCredit(rule.userId);
             logger.info(`Rule ${rule.id}: Activated Mini App '${rule.miniAppId}' for ${jid}`);
         } catch (error) {

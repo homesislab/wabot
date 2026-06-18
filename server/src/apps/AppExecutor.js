@@ -9,7 +9,7 @@
  */
 import { sendError, sendProcessing } from './ResponseFormatter.js';
 import * as messageAdapter from '../services/messageAdapter.js';
-import { clearAppSession } from './AppSessionManager.js';
+import { setAppSession, clearAppSession } from './AppSessionManager.js';
 import { logger } from '../config/logger.js';
 import { prisma } from '../prisma.js';
 
@@ -29,7 +29,7 @@ export const executeApp = async (manifest, normalizedMsg, userId, phase) => {
   // ─── FASE AKTIVASI: Kirim konfirmasi, jangan jalankan handler ──────────────
   if (phase === 'ACTIVATION') {
     const confirmMsg = manifest.activationMessage ||
-      `✅ *${manifest.icon || ''} ${name}* siap!\n\nSilahkan kirim voice note sekarang. Sesi aktif selama 5 menit.`;
+      `✅ *${manifest.icon || ''} ${name}* siap!\n\nSilahkan ikuti instruksi selanjutnya. Sesi aktif selama 5 menit.`;
 
     await messageAdapter.sendMessage(normalizedMsg, { text: confirmMsg }, userId);
     return;
@@ -81,4 +81,27 @@ export const executeApp = async (manifest, normalizedMsg, userId, phase) => {
     }
     await sendError(normalizedMsg, error, userId);
   }
+};
+
+/**
+ * activateMiniApp — SATU-SATUNYA jalur untuk "mengaktifkan" sebuah mini-app:
+ * set pending session (Redis) + kirim pesan aktivasi.
+ *
+ * Dipakai oleh:
+ *   - App Framework  : fase ACTIVATION dari trigger KEYWORD_THEN_VOICE / KEYWORD_THEN_IMAGE
+ *   - Rule Engine    : action `ACTIVATE_MINI_APP`
+ *
+ * Dengan begini, logika aktivasi tidak lagi diduplikasi di AppRouter maupun ruleEngine.
+ *
+ * @param {object} manifest      - App manifest dari AppRegistry
+ * @param {object} normalizedMsg - Pesan ternormalisasi
+ * @param {number} userId        - ID user pemilik bot
+ */
+export const activateMiniApp = async (manifest, normalizedMsg, userId) => {
+  const contactJid = normalizedMsg.participant || normalizedMsg.jid;
+  if (contactJid) {
+    await setAppSession(userId, contactJid, manifest.id);
+  }
+  // Kirim pesan aktivasi lewat rutinitas yang sama (fase ACTIVATION)
+  await executeApp(manifest, normalizedMsg, userId, 'ACTIVATION');
 };

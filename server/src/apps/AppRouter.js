@@ -11,7 +11,7 @@
  *   ALL              - semua tipe pesan
  */
 import { logger } from '../config/logger.js';
-import { setAppSession, getAppSession } from './AppSessionManager.js';
+import { getAppSession } from './AppSessionManager.js';
 
 /**
  * Cari app manifest yang cocok berdasarkan pesan masuk
@@ -64,9 +64,8 @@ export const route = async (normalizedMsg, registry = [], userId) => {
 
         // Fase 1: User kirim keyword → simpan session, beri konfirmasi
         if (textLower && keywords.some(kw => textLower.includes(kw.toLowerCase()))) {
-          await setAppSession(userId, contactJid, manifest.id);
-          logger.info(`[AppRouter] KEYWORD_THEN_VOICE phase-1: keyword matched → session set for ${manifest.id}`);
-          // Kembalikan manifest khusus "aktivasi" (bukan eksekusi handler)
+          // Session & pesan aktivasi di-handle oleh activateMiniApp() saat fase ACTIVATION
+          logger.info(`[AppRouter] KEYWORD_THEN_VOICE phase-1: keyword matched → activate ${manifest.id}`);
           return { manifest, sessionCleared: false, phase: 'ACTIVATION' };
         }
 
@@ -94,8 +93,8 @@ export const route = async (normalizedMsg, registry = [], userId) => {
 
         // Fase 1: User kirim keyword saja → simpan session, beri konfirmasi
         if (hasKeyword && !isImage) {
-          await setAppSession(userId, contactJid, manifest.id);
-          logger.info(`[AppRouter] KEYWORD_THEN_IMAGE phase-1: keyword matched → session set for ${manifest.id}`);
+          // Session & pesan aktivasi di-handle oleh activateMiniApp() saat fase ACTIVATION
+          logger.info(`[AppRouter] KEYWORD_THEN_IMAGE phase-1: keyword matched → activate ${manifest.id}`);
           return { manifest, sessionCleared: false, phase: 'ACTIVATION' };
         }
 

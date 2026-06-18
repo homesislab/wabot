@@ -116,3 +116,40 @@ docker compose config
 - Rate limiting pada `/api/auth/login`.
 - Automated tests untuk `ruleEngine` & `creditService`.
 - Tambah service DB/Redis ke compose atau perjelas dependensi network eksternal `shared_apps` (B17).
+
+---
+
+## 🧩 Refactor 18 Jun 2026 — Satu jalur aktivasi mini-app
+
+**Masalah:** Sulit membedakan trigger mana yang mengaktifkan mini-app vs auto-reply,
+karena ada **dua jalur paralel** yang logika aktivasinya saling duplikat:
+
+| | Sebelum |
+|---|---|
+| **App Framework** (`AppRouter` → `AppExecutor`, step 5) | `setAppSession()` dipanggil di dalam `route()`, pesan aktivasi dikirim di `executeApp()` fase `ACTIVATION` |
+| **Rule Engine** (`ruleEngine`, step 6) | action `ACTIVATE_MINI_APP` **mengulang** logika sendiri: `setAppSession()` + susun & kirim pesan aktivasi inline |
+
+**Perbaikan — satukan jadi satu rutinitas `activateMiniApp()`:**
+
+- Tambah fungsi tunggal `activateMiniApp(manifest, normalizedMsg, userId)` di `AppExecutor.js`
+  yang melakukan **set session Redis + kirim pesan aktivasi** (memakai fase `ACTIVATION` yang sudah ada).
+- `AppRouter.route()` tidak lagi memanggil `setAppSession()` sendiri (impor `setAppSession` dihapus);
+  ia hanya menandai `phase: 'ACTIVATION'`.
+- Dispatcher di `ruleEngine` (step 5): fase `ACTIVATION` → `activateMiniApp()`, selain itu → `executeApp()`.
+- Action `ACTIVATE_MINI_APP` di `ruleEngine` kini cukup memanggil `activateMiniApp()` — blok inline
+  (`setAppSession` + string pesan) dihapus, impor `setAppSession` di `ruleEngine` ikut dibersihkan.
+
+**Hasil:**
+
+- **Satu sumber kebenaran** untuk “mengaktifkan mini-app” → `activateMiniApp()`.
+- Pemisahan tanggung jawab jadi jelas: **App Framework = mini-apps**, **Rule Engine = auto-reply**
+  (RESPONSE / AI_REPLY / API_CALL), dan `ACTIVATE_MINI_APP` hanyalah jembatan tipis ke App Framework.
+- Tidak ada perubahan perilaku runtime selain fallback pesan aktivasi yang kini netral
+  (“Silahkan ikuti instruksi selanjutnya”) untuk semua app, bukan khusus voice note.
+
+File tersentuh: `server/src/apps/AppExecutor.js`, `server/src/apps/AppRouter.js`, `server/src/services/ruleEngine.js`.
+
+### Catatan lanjutan (opsional)
+Semantik keyword masih beda antara dua sistem (`AppRouter` pakai `startsWith`, Rule Engine pakai
+`includes`). Kalau mau benar-benar konsisten, samakan keduanya (mis. keduanya `startsWith` atau
+keduanya exact/word-boundary) — ini perubahan perilaku, jadi sengaja belum diterapkan.
