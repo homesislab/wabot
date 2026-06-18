@@ -195,6 +195,12 @@ export const broadcastMessage = async (req, res) => {
                 return;
             }
 
+            // Persist the resolved text ONCE so retries reuse the SAME message (idempotent):
+            // avoids re-running expensive/non-idempotent AI/API and prevents sending the raw prompt on retry.
+            await prisma.broadcast.update({
+                where: { id: broadcast.id },
+                data: { resolvedContent: finalMessageText }
+            });
 
             for (let i = 0; i < contacts.length; i++) {
                 const contact = contacts[i];
@@ -327,31 +333,16 @@ export const retryBroadcast = async (req, res) => {
                     const isTelegram = broadcast.sessionId.startsWith('telegram_');
                     const jid = isTelegram ? log.contactPhone : (log.contactPhone.includes('@') ? log.contactPhone : `${log.contactPhone}@s.whatsapp.net`);
 
-                    // Re-resolve content for Retry? Or use stored?
-                    // Original implementation reused 'broadcast.content'.
-                    // For AI/API, 'broadcast.content' is Prompt/Config. We should re-execute.
-                    // But simplified: Let's assume re-execution is desired.
-                    // WARNING: This loop is inside Retry, but we should Resolve ONCE outside loop efficiently.
-                    // For now, to match structure, I will copy the resolution logic or leave as simple fallback.
-                    // Given complexity, let's just send 'broadcast.content' for now unless we duplicate the logic.
-                    // To do it right: Copy resolution logic here.
-
-                    let retryText = broadcast.content;
-                    // ... (Skip complex re-resolution for brevity in this step, or assume user accepts static retry)
-                    // Actually, let's implement basic resolution or else AI retries send prompts!
-
-                    if (broadcast.actionType === 'AI_REPLY' || broadcast.actionType === 'API_CALL') {
-                        // We really should store the RESULT in the database to avoid re-running expensive/non-idempotent AI/API.
-                        // But we didn't add 'resultContent' to Broadcast model.
-                        // Optimization: Assume check above handles main flow. For Retry, we might just fail if we don't re-run.
-                        // Let's re-run for now.
-                    }
+                    // Reuse the text resolved during the initial run so every recipient (including
+                    // retries) gets the SAME message. Falls back to raw content for legacy broadcasts
+                    // created before resolvedContent existed.
+                    const retryText = broadcast.resolvedContent || broadcast.content;
 
                     let payload;
                     if (broadcast.messageType === 'IMAGE') {
-                        payload = { image: { url: broadcast.mediaUrl }, caption: broadcast.content };
+                        payload = { image: { url: broadcast.mediaUrl }, caption: retryText };
                     } else {
-                        payload = { text: broadcast.content };
+                        payload = { text: retryText };
                     }
 
                     const sent = await sendOutgoingMessageBySession(broadcast.sessionId, jid, payload, null);
@@ -377,14 +368,21 @@ export const retryBroadcast = async (req, res) => {
                 }
             }
 
-            // Update totals
+            // Recompute totals from ACTUAL log states — robust against stale counters
+            // (the previous `broadcast.failed - retriedSent` could drift or even go negative).
+            const [successCount, remainingFailed] = await Promise.all([
+                prisma.broadcastLog.count({ where: { broadcastId: broadcast.id, status: 'SUCCESS' } }),
+                prisma.broadcastLog.count({ where: { broadcastId: broadcast.id, status: 'FAILED' } }),
+            ]);
             await prisma.broadcast.update({
                 where: { id: broadcast.id },
                 data: {
-                    sent: broadcast.sent + retriedSent,
-                    failed: broadcast.failed - retriedSent // Re-calculated based on what became success
+                    sent: successCount,
+                    failed: remainingFailed,
+                    status: remainingFailed === 0 ? 'COMPLETED' : broadcast.status,
                 }
             });
+            logger.info(`Broadcast ${broadcast.id} retry done. Totals — sent: ${successCount}, failed: ${remainingFailed} (this run: +${retriedSent} sent, ${retriedFailed} still failing)`);
 
         })();
 

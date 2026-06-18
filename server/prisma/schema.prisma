@@ -187,6 +187,7 @@ model Broadcast {
   tag          String
   messageType  String
   content      String         @db.Text
+  resolvedContent String?      @db.Text // Final text after AI_REPLY/API_CALL resolution; reused on retry so every recipient gets the same message
   mediaUrl     String?
   actionType   String         @default("TEXT") // TEXT, IMAGE, AI_REPLY, API_CALL
   apiUrl       String?
