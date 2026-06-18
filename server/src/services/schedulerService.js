@@ -6,6 +6,7 @@ import * as creditService from './creditService.js';
 import * as aiService from './aiService.js';
 import { getToolsForUser } from './toolManager.js';
 import { fixJsonString } from '../utils/jsonUtils.js';
+import { validateOutboundUrl, fetchWithTimeout } from '../utils/urlGuard.js';
 
 const jobs = new Map();
 
@@ -103,7 +104,7 @@ Output langsung adalah isi pesan, tidak lebih.`;
                             headers[schedule.credential.key] = schedule.credential.value;
                         } else if (schedule.credential.location === 'QUERY') {
                             const separator = url.includes('?') ? '&' : '?';
-                            url += `${separator}${schedule.credential.key}=${schedule.credential.value}`;
+                            url += `${separator}${encodeURIComponent(schedule.credential.key)}=${encodeURIComponent(schedule.credential.value)}`;
                         } else if (schedule.credential.type === 'BEARER') {
                             headers['Authorization'] = `Bearer ${schedule.credential.value}`;
                         }
@@ -129,7 +130,8 @@ Output langsung adalah isi pesan, tidak lebih.`;
                         }
                     }
 
-                    const res = await fetch(url, options);
+                    const safeUrl = validateOutboundUrl(url);
+                    const res = await fetchWithTimeout(safeUrl, options);
                     const data = await res.json();
 
                     // Respond with result (simple text or 'message' field)

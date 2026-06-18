@@ -5,6 +5,7 @@ import { prisma } from '../prisma.js';
 import * as aiService from '../services/aiService.js';
 import { getToolsForUser } from '../services/toolManager.js';
 import { sendOutgoingMessageBySession } from '../services/messageAdapter.js';
+import { validateOutboundUrl, fetchWithTimeout } from '../utils/urlGuard.js';
 
 export const sendMessage = async (req, res) => {
     const { sessionId, to, type, content, mediaUrl } = req.body;
@@ -176,7 +177,7 @@ export const broadcastMessage = async (req, res) => {
                         const cred = await prisma.aiCredential.findUnique({ where: { id: parseInt(req.body.credentialId) } });
                         if (cred) {
                             if (cred.location === 'HEADER' && cred.key) headers[cred.key] = cred.value;
-                            else if (cred.location === 'QUERY') url += `${url.includes('?') ? '&' : '?'}${cred.key}=${cred.value}`;
+                            else if (cred.location === 'QUERY') url += `${url.includes('?') ? '&' : '?'}${encodeURIComponent(cred.key)}=${encodeURIComponent(cred.value)}`;
                             else if (cred.type === 'BEARER') headers['Authorization'] = `Bearer ${cred.value}`;
                         }
                     }
@@ -186,7 +187,8 @@ export const broadcastMessage = async (req, res) => {
                         options.body = req.body.apiPayload;
                     }
 
-                    const resApi = await fetch(url, options);
+                    const safeUrl = validateOutboundUrl(url);
+                    const resApi = await fetchWithTimeout(safeUrl, options);
                     const dataApi = await resApi.json();
                     finalMessageText = dataApi.message ? (typeof dataApi.message === 'string' ? dataApi.message : JSON.stringify(dataApi.message)) : JSON.stringify(dataApi);
                 }

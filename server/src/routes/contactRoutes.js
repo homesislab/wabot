@@ -137,7 +137,7 @@ router.post('/import', upload.single('file'), async (req, res) => {
 
             try {
                 await prisma.contact.upsert({
-                    where: { phone },
+                    where: { userId_phone: { userId: req.user.id, phone } },
                     update: { name, tags: tags || null },
                     create: {
                         name,

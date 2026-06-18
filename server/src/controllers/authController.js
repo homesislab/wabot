@@ -140,7 +140,7 @@ export const googleLogin = async (req, res) => {
 
 
 export const register = async (req, res) => {
-    const { username, password, role, email, phone, planType } = req.body;
+    let { username, password, role, email, phone, planType } = req.body;
 
     try {
         const userCount = await prisma.user.count();

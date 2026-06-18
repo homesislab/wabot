@@ -1,5 +1,6 @@
 import jwt from 'jsonwebtoken';
 import { prisma } from '../prisma.js';
+import { logger } from '../config/logger.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'supersecretkeychangedinprod';
 
@@ -11,23 +12,30 @@ export const authenticateToken = (req, res, next) => {
 
     jwt.verify(token, JWT_SECRET, async (err, user) => {
         if (err) {
-            console.log('JWT Verify Error:', err.message);
             return res.sendStatus(403);
         }
 
         try {
-            console.log('Verifying user in DB:', user.id);
+            // Always resolve identity, role and active status from the DB rather
+            // than trusting the (up to 24h stale) JWT payload. This ensures role
+            // changes and deactivations take effect immediately, not after expiry.
             const dbUser = await prisma.user.findUnique({ where: { id: user.id } });
             if (!dbUser) {
-                console.log('User not found in DB');
                 return res.sendStatus(401);
             }
+            if (dbUser.isActive === false) {
+                return res.status(403).json({ error: 'Account is deactivated' });
+            }
 
-            req.user = user;
-            console.log('Auth success:', user.username);
+            req.user = {
+                id: dbUser.id,
+                username: dbUser.username,
+                role: dbUser.role,
+                planType: dbUser.planType,
+            };
             next();
         } catch (e) {
-            console.error('Auth verification error:', e);
+            logger.error(`Auth verification error: ${e.message}`);
             res.sendStatus(500);
         }
     });
