@@ -5,7 +5,7 @@ import { prisma } from '../prisma.js';
 import * as aiService from '../services/aiService.js';
 import { getToolsForUser } from '../services/toolManager.js';
 import { sendOutgoingMessageBySession } from '../services/messageAdapter.js';
-import { validateOutboundUrl, fetchWithTimeout } from '../utils/urlGuard.js';
+import { executeApiCall } from '../services/outboundRequest.js';
 
 export const sendMessage = async (req, res) => {
     const { sessionId, to, type, content, mediaUrl } = req.body;
@@ -169,28 +169,18 @@ export const broadcastMessage = async (req, res) => {
                         throw new Error("Missing AI API Key");
                     }
                 } else if (type === 'API_CALL' && req.body.apiUrl) {
-                    let url = req.body.apiUrl;
-                    const method = req.body.apiMethod || 'GET';
-                    const headers = { 'Content-Type': 'application/json' };
-
+                    let credential = null;
                     if (req.body.credentialId) {
-                        const cred = await prisma.aiCredential.findUnique({ where: { id: parseInt(req.body.credentialId) } });
-                        if (cred) {
-                            if (cred.location === 'HEADER' && cred.key) headers[cred.key] = cred.value;
-                            else if (cred.location === 'QUERY') url += `${url.includes('?') ? '&' : '?'}${encodeURIComponent(cred.key)}=${encodeURIComponent(cred.value)}`;
-                            else if (cred.type === 'BEARER') headers['Authorization'] = `Bearer ${cred.value}`;
-                        }
+                        credential = await prisma.aiCredential.findUnique({ where: { id: parseInt(req.body.credentialId) } });
                     }
-
-                    const options = { method, headers };
-                    if (method !== 'GET' && method !== 'HEAD' && req.body.apiPayload) {
-                        options.body = req.body.apiPayload;
-                    }
-
-                    const safeUrl = validateOutboundUrl(url);
-                    const resApi = await fetchWithTimeout(safeUrl, options);
-                    const dataApi = await resApi.json();
-                    finalMessageText = dataApi.message ? (typeof dataApi.message === 'string' ? dataApi.message : JSON.stringify(dataApi.message)) : JSON.stringify(dataApi);
+                    const { replyText } = await executeApiCall({
+                        url: req.body.apiUrl,
+                        method: req.body.apiMethod || 'GET',
+                        payload: req.body.apiPayload,
+                        credential,
+                        label: 'Broadcast API_CALL',
+                    });
+                    finalMessageText = replyText;
                 }
             } catch (prepError) {
                 logger.error(`Broadcast preparation failed: ${prepError.message}`);

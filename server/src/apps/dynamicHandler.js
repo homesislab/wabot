@@ -8,6 +8,7 @@ import OpenAI from 'openai';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { downloadAndConvertAudio, cleanupTempFile } from './tajwidChecker/audioProcessor.js';
 import fs from 'fs';
+import * as creditService from '../services/creditService.js';
 
 /**
  * Main handler — dipanggil oleh AppExecutor
@@ -17,10 +18,18 @@ import fs from 'fs';
 export const handler = async (normalizedMsg, context) => {
     const { user, sendMessage, appConfig } = context;
     const { rawMessage } = normalizedMsg;
+    const userId = user?.id ?? context.userId;
 
     const isVoiceNote = rawMessage?.message?.audioMessage?.ptt === true;
 
     logger.info(`[DynamicHandler] App: ${appConfig.name} | triggerType: ${appConfig.triggerType} | isVoice: ${isVoiceNote}`);
+
+    // Credit guard — mini-apps consume AI (transcription + generation) like auto-reply/games
+    const hasCredits = await creditService.checkCredits(userId);
+    if (!hasCredits) {
+        await sendMessage(normalizedMsg, { text: '⚠️ Kredit tidak cukup untuk menjalankan mini-app ini.' });
+        return;
+    }
 
     let inputText = normalizedMsg.text || '';
 
@@ -39,6 +48,7 @@ export const handler = async (normalizedMsg, context) => {
 
     if (response) {
         await sendMessage(normalizedMsg, { text: response });
+        await creditService.deductCredit(userId);
     } else {
         await sendMessage(normalizedMsg, { text: '❌ Tidak ada respons dari AI. Coba lagi.' });
     }

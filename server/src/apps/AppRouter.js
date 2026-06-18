@@ -12,6 +12,7 @@
  */
 import { logger } from '../config/logger.js';
 import { getAppSession } from './AppSessionManager.js';
+import { matchAnyKeyword } from '../utils/triggerMatch.js';
 
 /**
  * Cari app manifest yang cocok berdasarkan pesan masuk
@@ -43,7 +44,7 @@ export const route = async (normalizedMsg, registry = [], userId) => {
         const kwList = Array.isArray(trigger.value)
           ? trigger.value
           : (trigger.value ? [trigger.value] : []);
-        if (textLower && kwList.length > 0 && kwList.some(kw => textLower.startsWith(kw.toLowerCase()))) {
+        if (kwList.length > 0 && matchAnyKeyword(textLower, kwList, 'prefix')) {
           logger.info(`[AppRouter] KEYWORD matched "${textLower}" → ${manifest.id}`);
           return { manifest, sessionCleared: false };
         }
@@ -63,7 +64,7 @@ export const route = async (normalizedMsg, registry = [], userId) => {
         const keywords = Array.isArray(trigger.value) ? trigger.value : [trigger.value];
 
         // Fase 1: User kirim keyword → simpan session, beri konfirmasi
-        if (textLower && keywords.some(kw => textLower.includes(kw.toLowerCase()))) {
+        if (matchAnyKeyword(textLower, keywords, 'contains')) {
           // Session & pesan aktivasi di-handle oleh activateMiniApp() saat fase ACTIVATION
           logger.info(`[AppRouter] KEYWORD_THEN_VOICE phase-1: keyword matched → activate ${manifest.id}`);
           return { manifest, sessionCleared: false, phase: 'ACTIVATION' };
@@ -83,7 +84,7 @@ export const route = async (normalizedMsg, registry = [], userId) => {
       // ─── KEYWORD_THEN_IMAGE (2 fase) ────────────────────────────────────────
       case 'KEYWORD_THEN_IMAGE': {
         const keywords = Array.isArray(trigger.value) ? trigger.value : [trigger.value];
-        const hasKeyword = textLower && keywords.some(kw => textLower.includes(kw.toLowerCase()));
+        const hasKeyword = matchAnyKeyword(textLower, keywords, 'contains');
 
         // Kasus spesial: User kirim gambar DAN keyword di caption sekaligus
         if (isImage && hasKeyword) {

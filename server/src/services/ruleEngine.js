@@ -13,37 +13,8 @@ import { route } from '../apps/AppRouter.js';
 import { executeApp, activateMiniApp } from '../apps/AppExecutor.js';
 import { getRegistryForUser } from '../apps/AppRegistry.js';
 import { getAppSession, clearAppSession } from '../apps/AppSessionManager.js';
-
-// ─── SSRF-safe outbound URL validation (shared guard for webhook API_CALL) ───
-const ALLOWED_OUTBOUND_PROTOCOLS = new Set(['https:']);
-const PRIVATE_IP_REGEX = /^(localhost|127\.|10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|169\.254\.|::1$|fc00:|fe80:)/i;
-
-const validateOutboundUrl = (urlString) => {
-    let parsed;
-    try {
-        parsed = new URL(urlString);
-    } catch {
-        throw new Error(`Invalid URL: ${urlString}`);
-    }
-    if (!ALLOWED_OUTBOUND_PROTOCOLS.has(parsed.protocol)) {
-        throw new Error(`Protocol not allowed: ${parsed.protocol}`);
-    }
-    if (PRIVATE_IP_REGEX.test(parsed.hostname)) {
-        throw new Error(`Access to internal network is blocked: ${parsed.hostname}`);
-    }
-    return parsed.toString();
-};
-
-// fetch with an AbortController timeout (default 15s) so a slow webhook can't hang the worker
-const fetchWithTimeout = async (url, options = {}, timeoutMs = 15_000) => {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-    try {
-        return await fetch(url, { ...options, signal: controller.signal });
-    } finally {
-        clearTimeout(timeoutId);
-    }
-};
+import { executeApiCall } from './outboundRequest.js';
+import { matchKeyword } from '../utils/triggerMatch.js';
 
 export const processMessage = async (normalizedMsg) => {
     try {
@@ -170,7 +141,7 @@ export const processMessage = async (normalizedMsg) => {
                         if (botUser && text.includes(`@${botUser}`)) matched = true;
                     }
                 } else {
-                    if (text.toLowerCase().includes(rule.triggerValue.toLowerCase())) matched = true;
+                    if (matchKeyword(text, rule.triggerValue, 'contains')) matched = true;
                 }
             } else if (rule.triggerType === 'ALL') {
                 // Only match private chats, not group chats
@@ -314,38 +285,19 @@ const executeAction = async (rule, normalizedMsg) => {
             };
 
             const method = rule.apiMethod || 'POST';
-            const headers = { 'Content-Type': 'application/json' };
 
-            // Inject Credential if available.
-            // Handle BEARER type first (independent of location), then HEADER/QUERY placement.
-            // QUERY key & value are URL-encoded to avoid breaking the URL on special characters.
-            if (rule.credential) {
-                const cred = rule.credential;
-                if (cred.type === 'BEARER') {
-                    headers['Authorization'] = `Bearer ${cred.value}`;
-                } else if (cred.location === 'HEADER' && cred.key) {
-                    headers[cred.key] = cred.value;
-                } else if (cred.location === 'QUERY' && cred.key) {
-                    const separator = url.includes('?') ? '&' : '?';
-                    url += `${separator}${encodeURIComponent(cred.key)}=${encodeURIComponent(cred.value)}`;
-                }
-            }
-
-            const options = {
-                method,
-                headers
-            };
-
-            if (method !== 'GET' && method !== 'HEAD') {
-                options.body = JSON.stringify(payload);
-            }
-
-            // SSRF guard: block internal/private targets and non-HTTPS before fetching
-            let safeUrl;
+            // Shared outbound caller: credential injection + SSRF guard + timeout + safe parsing
+            let result;
             try {
-                safeUrl = validateOutboundUrl(url);
+                result = await executeApiCall({
+                    url,
+                    method,
+                    body: (method !== 'GET' && method !== 'HEAD') ? JSON.stringify(payload) : undefined,
+                    credential: rule.credential,
+                    label: `Rule ${rule.id}`,
+                });
             } catch (e) {
-                logger.error(`Rule ${rule.id} API_CALL blocked by SSRF guard: ${e.message}`);
+                logger.error(`Rule ${rule.id} API_CALL blocked/failed: ${e.message}`);
                 await messageAdapter.sendMessage(
                     normalizedMsg,
                     { text: `⚠️ *System Error*: Webhook URL is not allowed (must be a public HTTPS endpoint).` },
@@ -354,27 +306,9 @@ const executeAction = async (rule, normalizedMsg) => {
                 return;
             }
 
-            const response = await fetchWithTimeout(safeUrl, options); // Use validated URL + timeout
-            apiCallsTotal.inc({ method: rule.apiMethod || 'POST' });
-
-            if (!response.ok) {
-                logger.warn(`Rule ${rule.id} API returned non-OK status ${response.status} from ${safeUrl}`);
-            }
-
-            // Safe response parsing: only parse JSON when the body is actually JSON
-            let data = null;
-            const contentType = response.headers.get('content-type') || '';
-            if (contentType.includes('application/json')) {
-                try {
-                    data = await response.json();
-                } catch (e) {
-                    logger.warn(`Rule ${rule.id} failed to parse JSON response: ${e.message}`);
-                }
-            } else {
-                const bodyText = await response.text().catch(() => '');
-                if (bodyText) data = { message: bodyText };
-            }
-            logger.info(`Rule ${rule.id} API executed to ${safeUrl}. Status: ${response.status}`);
+            apiCallsTotal.inc({ method });
+            const data = result.data;
+            logger.info(`Rule ${rule.id} API executed. Status: ${result.status}`);
 
             // Credit is consumed once for a successful API_CALL action
             await creditService.deductCredit(rule.userId);

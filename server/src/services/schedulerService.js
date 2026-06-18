@@ -5,8 +5,7 @@ import { sendOutgoingMessageBySession } from './messageAdapter.js';
 import * as creditService from './creditService.js';
 import * as aiService from './aiService.js';
 import { getToolsForUser } from './toolManager.js';
-import { fixJsonString } from '../utils/jsonUtils.js';
-import { validateOutboundUrl, fetchWithTimeout } from '../utils/urlGuard.js';
+import { executeApiCall } from './outboundRequest.js';
 
 const jobs = new Map();
 
@@ -94,48 +93,13 @@ Output langsung adalah isi pesan, tidak lebih.`;
                     }
 
                 } else if (schedule.actionType === 'API_CALL' && schedule.apiUrl) {
-                    let url = schedule.apiUrl;
-                    const method = schedule.apiMethod || 'GET';
-                    const headers = { 'Content-Type': 'application/json' };
-
-                    // Inject Credential
-                    if (schedule.credential) {
-                        if (schedule.credential.location === 'HEADER' && schedule.credential.key) {
-                            headers[schedule.credential.key] = schedule.credential.value;
-                        } else if (schedule.credential.location === 'QUERY') {
-                            const separator = url.includes('?') ? '&' : '?';
-                            url += `${separator}${encodeURIComponent(schedule.credential.key)}=${encodeURIComponent(schedule.credential.value)}`;
-                        } else if (schedule.credential.type === 'BEARER') {
-                            headers['Authorization'] = `Bearer ${schedule.credential.value}`;
-                        }
-                    }
-
-                    const options = { method, headers };
-                    if (method !== 'GET' && method !== 'HEAD' && schedule.apiPayload) {
-                        try {
-                            // Validate JSON first
-                            JSON.parse(schedule.apiPayload);
-                            options.body = schedule.apiPayload;
-                        } catch (e) {
-                            // Attempt to fix unescaped newlines/tabs in JSON strings
-                            const fixed = fixJsonString(schedule.apiPayload);
-                            try {
-                                const parsed = JSON.parse(fixed);
-                                options.body = JSON.stringify(parsed);
-                                logger.info(`Schedule ${schedule.id}: Fixed invalid JSON payload`);
-                            } catch (e2) {
-                                logger.warn(`Schedule ${schedule.id} encountered JSON parse error, sending as-is: ${e.message}`);
-                                options.body = schedule.apiPayload;
-                            }
-                        }
-                    }
-
-                    const safeUrl = validateOutboundUrl(url);
-                    const res = await fetchWithTimeout(safeUrl, options);
-                    const data = await res.json();
-
-                    // Respond with result (simple text or 'message' field)
-                    const replyText = data.message ? (typeof data.message === 'string' ? data.message : JSON.stringify(data.message)) : JSON.stringify(data);
+                    const { replyText } = await executeApiCall({
+                        url: schedule.apiUrl,
+                        method: schedule.apiMethod || 'GET',
+                        payload: schedule.apiPayload,
+                        credential: schedule.credential,
+                        label: `Schedule ${schedule.id}`,
+                    });
                     finalPayload = { text: replyText };
 
                 } else if (schedule.messageType === 'IMAGE' || schedule.actionType === 'IMAGE') {
