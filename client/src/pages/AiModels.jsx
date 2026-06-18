@@ -21,7 +21,7 @@ const AiModels = () => {
         try {
             const res = await api.get('/aimodels');
             setModels(res.data);
-        } catch (err) {
+        } catch {
             setError('Failed to load AI Models');
         } finally {
             setLoading(false);
@@ -78,7 +78,7 @@ const AiModels = () => {
             fetchModels();
             setSuccess('Model deleted successfully');
             setTimeout(() => setSuccess(''), 2000);
-        } catch (err) {
+        } catch {
             setError('Failed to delete model');
             setTimeout(() => setError(''), 2000);
         }

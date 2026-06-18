@@ -65,7 +65,7 @@ const Login = () => {
             script.onload = initGoogle;
             document.head.appendChild(script);
         }
-    }, [GOOGLE_CLIENT_ID, handleGoogleCallback]);
+    }, [handleGoogleCallback]);
 
     // ─── Username/Password Login ──────────────────────
     const handleSubmit = async (e) => {

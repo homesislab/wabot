@@ -104,6 +104,14 @@ export const handleActiveGame = async (normalizedMsg) => {
 
                     try {
                         const user = await prisma.user.findUnique({ where: { id: game.userId } });
+
+                        const hasCredits = await creditService.checkCredits(game.userId);
+                        if (!hasCredits) {
+                            state.status = 'LOBBY';
+                            await sendGameMessage(normalizedMsg, game.userId, { text: "⚠️ Kredit tidak mencukupi untuk memulai AI RPG. Silakan top up dulu." });
+                            return true;
+                        }
+
                         const tools = await getToolsForUser(game.userId);
 
                         const prompt = `Anda adalah Game Master RPG. \n` +
@@ -126,6 +134,8 @@ export const handleActiveGame = async (normalizedMsg) => {
                         if (aiText.lastIndexOf('}') < aiText.length - 1) aiText = aiText.substring(0, aiText.lastIndexOf('}') + 1);
 
                         const parsed = JSON.parse(aiText);
+
+                        await creditService.deductCredit(game.userId);
 
                         state.roles = parsed.roles || {};
                         state.alivePlayers = [...state.players]; // Everyone starts alive
@@ -462,6 +472,12 @@ async function advanceAiRpg(activeGame, normalizedMsg, game, state) {
             return;
         }
 
+        const hasCredits = await creditService.checkCredits(game.userId);
+        if (!hasCredits) {
+            await sendGameMessage(normalizedMsg, game.userId, { text: "⚠️ Kredit tidak mencukupi untuk melanjutkan cerita RPG. Silakan top up dulu." });
+            return;
+        }
+
         let historyContext = state.history.join("\n");
         let accumulatedActions = state.accumulatedChats.join("\n");
 
@@ -491,6 +507,8 @@ async function advanceAiRpg(activeGame, normalizedMsg, game, state) {
 
         aiText = aiText.replace(/\`\`\`json/gi, '').replace(/\`\`\`/g, '').trim();
         const parsed = JSON.parse(aiText);
+
+        await creditService.deductCredit(game.userId);
 
         // --- IMAGE GENERATION ---
         let imageResult = null;
