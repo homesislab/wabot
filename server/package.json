@@ -16,7 +16,7 @@
     "@apidevtools/swagger-parser": "^12.1.0",
     "@google/generative-ai": "^0.24.1",
     "@prisma/client": "^5.10.2",
-    "@whiskeysockets/baileys": "^7.0.0-rc.9",
+    "@whiskeysockets/baileys": "7.0.0-rc13",
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
