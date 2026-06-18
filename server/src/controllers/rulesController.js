@@ -20,11 +20,10 @@ export const createRule = async (req, res) => {
             filterGroupId, credentialId, miniAppId
         } = req.body;
 
-        // triggerValue must never be null — auto-fill for types that don't use it
-        const resolvedTriggerValue =
-            (triggerType === 'ALL' || triggerType === 'MENTION')
-                ? (triggerValue || triggerType)
-                : triggerValue;
+        // Check if triggers require a triggerValue (KEYWORD or REGEX)
+        const types = triggerType ? triggerType.split(',').map(t => t.trim()).filter(Boolean) : [];
+        const needsValue = types.some(t => t === 'KEYWORD' || t === 'REGEX');
+        const resolvedTriggerValue = needsValue ? triggerValue : (triggerValue || triggerType);
 
         const rule = await prisma.rule.create({
             data: {
@@ -78,11 +77,14 @@ export const updateRule = async (req, res) => {
             }
         }
 
-        // Ensure triggerValue is never null for ALL/MENTION types
+        // Ensure triggerValue is never null if only ALL/MENTION/DIRECT_MESSAGE types are active
         const effectiveTriggerType = data.triggerType || rule.triggerType;
-        if ((effectiveTriggerType === 'ALL' || effectiveTriggerType === 'MENTION') &&
-            (data.triggerValue === null || data.triggerValue === undefined)) {
-            data.triggerValue = effectiveTriggerType;
+        if (effectiveTriggerType) {
+            const types = effectiveTriggerType.split(',').map(t => t.trim()).filter(Boolean);
+            const needsValue = types.some(t => t === 'KEYWORD' || t === 'REGEX');
+            if (!needsValue && (data.triggerValue === null || data.triggerValue === undefined || data.triggerValue === '')) {
+                data.triggerValue = effectiveTriggerType;
+            }
         }
 
         const updatedRule = await prisma.rule.update({

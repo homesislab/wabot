@@ -48,10 +48,32 @@ export const sendMessage = async (normalizedMsg, content, userId = null) => {
     try {
         if (platform === 'whatsapp') {
             const sock = client;
-            let payload = typeof content === 'string' ? { text: content } : content;
-            await sock.sendMessage(jid, payload);
+            let payload = typeof content === 'string' ? { text: content } : { ...content };
+            
+            if (payload.image && typeof payload.image === 'object' && !Buffer.isBuffer(payload.image)) {
+                if (payload.image.buffer) {
+                    payload.image = payload.image.buffer;
+                } else if (payload.image.url) {
+                    payload.image = { url: payload.image.url };
+                }
+            }
+            
+            // Check if we should reply (quote message) when in a group chat
+            const isGroup = jid.endsWith('@g.us');
+            const options = {};
+            if (isGroup && normalizedMsg?.rawMessage) {
+                options.quoted = normalizedMsg.rawMessage;
+            }
+            
+            await sock.sendMessage(jid, payload, options);
         } else if (platform === 'telegram') {
             const bot = client;
+
+            const isGroup = jid.toString().startsWith('-') || jid.toString().includes('_');
+            const options = {};
+            if (isGroup && normalizedMsg?.rawMessage?.message_id) {
+                options.reply_to_message_id = normalizedMsg.rawMessage.message_id;
+            }
 
             // Extract text from object if needed
             let textToSend = typeof content === 'string' ? content : content.text;
@@ -78,21 +100,21 @@ export const sendMessage = async (normalizedMsg, content, userId = null) => {
                     try {
                         if (Buffer.isBuffer(photo)) {
                             logger.info(`Sending image buffer to Telegram for JID ${jid}`);
-                            await bot.sendPhoto(jid, photo, { caption }, { filename: 'image.png', contentType: 'image/png' });
+                            await bot.sendPhoto(jid, photo, { caption, ...options }, { filename: 'image.png', contentType: 'image/png' });
                         } else {
                             logger.info(`Sending image URL to Telegram for JID ${jid}: ${typeof photo === 'string' ? photo.substring(0, 50) : 'object'}`);
-                            await bot.sendPhoto(jid, photo, { caption });
+                            await bot.sendPhoto(jid, photo, { caption, ...options });
                         }
                     } catch (photoError) {
                         logger.error(`Failed to send Telegram photo: ${photoError.message}. Falling back to text.`);
                         // Send just the text/caption if the image fails
-                        await bot.sendMessage(jid, (caption || textToSend || "🎨 Image Generation") + "\n\n(⚠️ Gagal mengirim gambar, silakan cek log sistem/provider)");
+                        await bot.sendMessage(jid, (caption || textToSend || "🎨 Image Generation") + "\n\n(⚠️ Gagal mengirim gambar, silakan cek log sistem/provider)", options);
                     }
                 } else if (textToSend) {
-                    await bot.sendMessage(jid, textToSend);
+                    await bot.sendMessage(jid, textToSend, options);
                 }
             } else if (textToSend) {
-                await bot.sendMessage(jid, textToSend);
+                await bot.sendMessage(jid, textToSend, options);
             }
         } else {
             logger.error(`Unknown platform: ${platform}`);

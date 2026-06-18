@@ -140,17 +140,18 @@ export const googleLogin = async (req, res) => {
 
 
 export const register = async (req, res) => {
-    const { username, password, role, email, phone, planType } = req.body;
+    const { username, password, email, phone, planType } = req.body;
 
     try {
         const userCount = await prisma.user.count();
         let userRole = 'USER';
         let isActive = false;
+        let userPlanType = planType || 'PAY_AS_YOU_GO';
 
         if (userCount === 0) {
             userRole = 'ADMIN';
             isActive = true; // First user is always active admin
-            planType = 'UNLIMITED'; // Admin gets unlimited plan
+            userPlanType = 'UNLIMITED'; // Admin gets unlimited plan
         }
 
         const hashedPassword = await bcrypt.hash(password, 10);
@@ -162,7 +163,7 @@ export const register = async (req, res) => {
                 isActive,
                 email,
                 phone,
-                planType: planType || 'PAY_AS_YOU_GO'
+                planType: userPlanType
             }
         });
 

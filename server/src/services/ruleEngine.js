@@ -1,6 +1,6 @@
 import { prisma } from '../prisma.js';
 import { logger } from '../config/logger.js';
-import { jidNormalizedUser } from '@whiskeysockets/baileys';
+import { jidNormalizedUser, extractMessageContent } from '@whiskeysockets/baileys';
 import * as creditService from './creditService.js';
 import * as aiService from './aiService.js';
 import { getToolsForUser } from './toolManager.js';
@@ -70,9 +70,10 @@ export const processMessage = async (normalizedMsg) => {
         const { platform, sessionId, participant, jid, text, client, rawMessage } = normalizedMsg;
 
         // Cek apakah ini voice note (audio) atau file audio
-        const isVoiceNote = rawMessage?.message?.audioMessage?.ptt === true ||
-                            !!(rawMessage?.message?.audioMessage) ||
-                            !!(rawMessage?.message?.documentMessage && rawMessage?.message?.documentMessage?.mimetype?.startsWith('audio/'));
+        const actualMsg = extractMessageContent(rawMessage?.message) || rawMessage?.message;
+        const isVoiceNote = actualMsg?.audioMessage?.ptt === true ||
+                            !!(actualMsg?.audioMessage) ||
+                            !!(actualMsg?.documentMessage && actualMsg?.documentMessage?.mimetype?.startsWith('audio/'));
 
         // Hanya skip jika teks kosong DAN bukan audio
         if (!text && !isVoiceNote) return;
@@ -172,7 +173,7 @@ export const processMessage = async (normalizedMsg) => {
                     // FALLBACK: Handle case where user selected KEYWORD but typed "On Mention (Tag Bot)"
                     if (rule.triggerValue.toLowerCase() === 'on mention (tag bot)') {
                         if (platform === 'whatsapp') {
-                            const msgContent = rawMessage?.message;
+                            const msgContent = extractMessageContent(rawMessage?.message) || rawMessage?.message;
                             const contextInfo = msgContent?.extendedTextMessage?.contextInfo
                                 || msgContent?.imageMessage?.contextInfo
                                 || msgContent?.videoMessage?.contextInfo
@@ -224,7 +225,7 @@ export const processMessage = async (normalizedMsg) => {
                 } else if (triggerType === 'MENTION') {
                     if (platform === 'whatsapp') {
                         // Extract mentioned JIDs from any message type (text, image, video, etc.)
-                        const msgContent = rawMessage?.message;
+                        const msgContent = extractMessageContent(rawMessage?.message) || rawMessage?.message;
                         const contextInfo = msgContent?.extendedTextMessage?.contextInfo
                             || msgContent?.imageMessage?.contextInfo
                             || msgContent?.videoMessage?.contextInfo

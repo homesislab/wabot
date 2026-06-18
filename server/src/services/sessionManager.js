@@ -1,4 +1,4 @@
-import makeWASocket, { useMultiFileAuthState, DisconnectReason, Browsers, fetchLatestBaileysVersion, makeCacheableSignalKeyStore } from '@whiskeysockets/baileys';
+import makeWASocket, { useMultiFileAuthState, DisconnectReason, Browsers, fetchLatestBaileysVersion, makeCacheableSignalKeyStore, extractMessageContent } from '@whiskeysockets/baileys';
 import { prisma } from '../prisma.js';
 import { logger } from '../config/logger.js';
 import fs from 'fs';
@@ -122,15 +122,20 @@ export const startSession = async (sessionId) => {
                 try {
                     const isFromMe = msg.key.fromMe;
 
-                    // Deteksi voice note (Push-to-Talk)
-                    const isVoiceNote = msg.message?.audioMessage?.ptt === true;
+                    // Normalize message to handle ephemeral, view once, etc.
+                    const actualMessage = extractMessageContent(msg.message) || msg.message;
 
-                    const content = msg.message?.conversation ||
-                        msg.message?.extendedTextMessage?.text ||
-                        msg.message?.imageMessage?.caption ||
+                    // Deteksi voice note (Push-to-Talk) atau file audio
+                    const isVoiceNote = actualMessage?.audioMessage?.ptt === true ||
+                        !!(actualMessage?.audioMessage) ||
+                        !!(actualMessage?.documentMessage && actualMessage?.documentMessage?.mimetype?.startsWith('audio/'));
+
+                    const content = actualMessage?.conversation ||
+                        actualMessage?.extendedTextMessage?.text ||
+                        actualMessage?.imageMessage?.caption ||
                         "";
 
-                    // Skip pesan kosong KECUALI voice note
+                    // Skip pesan kosong KECUALI audio
                     if (!content && !isVoiceNote) continue;
 
                     const remoteJid = msg.key.remoteJid;
@@ -160,6 +165,7 @@ export const startSession = async (sessionId) => {
                             msg,
                             sock
                         );
+                        normalizedMsg.pushName = msg.pushName;
 
                         await ruleEngine.processMessage(normalizedMsg);
                     }

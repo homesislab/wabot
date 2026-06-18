@@ -12,6 +12,7 @@
  */
 import { logger } from '../config/logger.js';
 import { setAppSession, getAppSession } from './AppSessionManager.js';
+import { extractMessageContent } from '@whiskeysockets/baileys';
 
 /**
  * Cari app manifest yang cocok berdasarkan pesan masuk
@@ -27,9 +28,12 @@ export const route = async (normalizedMsg, registry = [], userId) => {
   const contactJid = normalizedMsg.participant || normalizedMsg.jid;
 
   // Deteksi tipe pesan
-  const isVoiceNote = rawMessage?.message?.audioMessage?.ptt === true;
-  const isImage     = !!(rawMessage?.message?.imageMessage);
-  const isMention   = !!(rawMessage?.message?.extendedTextMessage?.contextInfo?.mentionedJid?.length);
+  const actualMsg = extractMessageContent(rawMessage?.message) || rawMessage?.message;
+  const isVoiceNote = actualMsg?.audioMessage?.ptt === true ||
+                      !!(actualMsg?.audioMessage) ||
+                      !!(actualMsg?.documentMessage && actualMsg?.documentMessage?.mimetype?.startsWith('audio/'));
+  const isImage     = !!(actualMsg?.imageMessage);
+  const isMention   = !!(actualMsg?.extendedTextMessage?.contextInfo?.mentionedJid?.length);
   const textLower   = (text || '').toLowerCase().trim();
 
   for (const manifest of registry) {

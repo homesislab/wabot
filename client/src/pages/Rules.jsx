@@ -88,6 +88,11 @@ const Rules = () => {
         const payload = { ...formData };
         if (payload.credentialId === '') payload.credentialId = null;
 
+        if (!payload.triggerType || payload.triggerType.trim() === '') {
+            alert("Please select at least one Trigger Type.");
+            return;
+        }
+
         try {
             if (editingRuleId) {
                 await api.put(`/rules/${editingRuleId}`, payload);
@@ -237,22 +242,69 @@ const Rules = () => {
                         </div>
                     )}
 
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Trigger Type</label>
-                        <select className="w-full border p-2 rounded-lg outline-none focus:ring-2 focus:ring-sisia-primary" value={formData.triggerType} onChange={e => setFormData({ ...formData, triggerType: e.target.value })}>
-                            <option value="KEYWORD">Keyword Includes</option>
-                            <option value="ALL">All Messages (Default)</option>
-                            <option value="REGEX">Regex Match</option>
-                            <option value="MENTION">On Mention (Tag Bot)</option>
-                        </select>
+                    <div className="md:col-span-2">
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Trigger Type</label>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                            {[
+                                { id: 'KEYWORD', label: 'Keyword Includes', desc: 'Pesan mengandung kata kunci' },
+                                { id: 'REGEX', label: 'Regex Match', desc: 'Cocok dengan pola RegExp' },
+                                { id: 'MENTION', label: 'On Mention (Tag Bot)', desc: 'Bot ditag atau disebut' },
+                                { id: 'DIRECT_MESSAGE', label: 'Direct Message', desc: 'Chat pribadi saja' },
+                                { id: 'ALL', label: 'All Messages', desc: 'Semua pesan' }
+                            ].map(trigger => {
+                                const selectedTriggers = formData.triggerType ? formData.triggerType.split(',').map(t => t.trim()).filter(Boolean) : [];
+                                const isChecked = selectedTriggers.includes(trigger.id);
+                                return (
+                                    <label key={trigger.id} className={`flex items-start gap-3 p-3 border rounded-lg cursor-pointer hover:bg-gray-50 transition-colors ${isChecked ? 'bg-emerald-50/50 border-sisia-primary' : 'border-gray-200'}`}>
+                                        <input
+                                            type="checkbox"
+                                            checked={isChecked}
+                                            onChange={() => {
+                                                let newTriggers;
+                                                if (isChecked) {
+                                                    newTriggers = selectedTriggers.filter(t => t !== trigger.id);
+                                                } else {
+                                                    newTriggers = [...selectedTriggers, trigger.id];
+                                                }
+                                                setFormData({ ...formData, triggerType: newTriggers.join(',') });
+                                            }}
+                                            className="mt-1 rounded text-sisia-primary focus:ring-sisia-primary"
+                                        />
+                                        <div>
+                                            <span className="font-semibold text-sm text-gray-800">{trigger.label}</span>
+                                            <p className="text-[11px] text-gray-500 mt-0.5">{trigger.desc}</p>
+                                        </div>
+                                    </label>
+                                );
+                            })}
+                        </div>
                     </div>
 
-                    {(formData.triggerType !== 'ALL' && formData.triggerType !== 'MENTION') && (
-                        <div className="md:col-span-2">
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Trigger Value</label>
-                            <input className="w-full border p-2 rounded-lg outline-none focus:ring-2 focus:ring-sisia-primary" placeholder={formData.triggerType === 'REGEX' ? '^Hello.*' : 'hello'} value={formData.triggerValue} onChange={e => setFormData({ ...formData, triggerValue: e.target.value })} required />
-                        </div>
-                    )}
+                    {(() => {
+                        const activeTypes = formData.triggerType ? formData.triggerType.split(',').map(t => t.trim()).filter(Boolean) : [];
+                        const showTriggerValue = activeTypes.includes('KEYWORD') || activeTypes.includes('REGEX');
+                        const isRegexOnly = activeTypes.includes('REGEX') && !activeTypes.includes('KEYWORD');
+                        if (showTriggerValue) {
+                            return (
+                                <div className="md:col-span-2">
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Trigger Value</label>
+                                    <input
+                                        className="w-full border p-2 rounded-lg outline-none focus:ring-2 focus:ring-sisia-primary"
+                                        placeholder={isRegexOnly ? '^Hello.*' : 'hello'}
+                                        value={formData.triggerValue}
+                                        onChange={e => setFormData({ ...formData, triggerValue: e.target.value })}
+                                        required
+                                    />
+                                    <p className="text-xs text-gray-500 mt-1">
+                                        {isRegexOnly
+                                            ? 'Pola Regular Expression untuk mencocokkan pesan.'
+                                            : 'Kata kunci (keyword) yang akan memicu rule ini.'}
+                                    </p>
+                                </div>
+                            );
+                        }
+                        return null;
+                    })()}
 
                     <div className="md:col-span-2">
                         <label className="block text-sm font-medium text-gray-700 mb-1">Action Type</label>
@@ -435,18 +487,37 @@ const Rules = () => {
                                 <div key={rule.id} className={`bg-white p-5 rounded-xl shadow-sm border border-gray-200 flex flex-col md:flex-row md:items-center justify-between gap-4 group hover:shadow-md hover:border-sisia-primary/30 transition-all ${!rule.isActive ? 'opacity-60' : ''}`}>
                                     <div className="flex-1">
                                         <div className="flex items-center gap-3 mb-2">
-                                            <span className={`h-8 w-8 rounded-lg flex items-center justify-center ${rule.triggerType === 'ALL' ? 'bg-purple-100 text-purple-600' :
-                                                rule.triggerType === 'MENTION' ? 'bg-orange-100 text-orange-600' :
-                                                    'bg-blue-100 text-blue-600'
-                                                }`}>
-                                                {rule.triggerType === 'ALL' ? <Globe size={16} /> :
-                                                    rule.triggerType === 'MENTION' ? <Zap size={16} /> :
-                                                        <MessageSquare size={16} />}
-                                            </span>
+                                            {(() => {
+                                                const types = rule.triggerType ? rule.triggerType.split(',').map(t => t.trim()).filter(Boolean) : [];
+                                                const primaryType = types[0] || 'KEYWORD';
+                                                return (
+                                                    <span className={`h-8 w-8 rounded-lg flex items-center justify-center ${
+                                                        primaryType === 'ALL' ? 'bg-purple-100 text-purple-600' :
+                                                        primaryType === 'DIRECT_MESSAGE' ? 'bg-pink-100 text-pink-600' :
+                                                        primaryType === 'MENTION' ? 'bg-orange-100 text-orange-600' :
+                                                        'bg-blue-100 text-blue-600'
+                                                    }`}>
+                                                        {primaryType === 'ALL' ? <Globe size={16} /> :
+                                                         primaryType === 'DIRECT_MESSAGE' ? <MessageSquare size={16} /> :
+                                                         primaryType === 'MENTION' ? <Zap size={16} /> :
+                                                         <MessageSquare size={16} />}
+                                                    </span>
+                                                );
+                                            })()}
                                             <div>
                                                 <h4 className="font-bold text-gray-900 leading-tight">{rule.name}</h4>
                                                 <div className="flex items-center gap-2 mt-0.5">
-                                                    <span className="text-[10px] text-gray-400 font-medium uppercase tracking-wide">Topic: {rule.triggerType}</span>
+                                                    <div className="flex flex-wrap gap-1">
+                                                        {rule.triggerType ? rule.triggerType.split(',').map(t => t.trim()).filter(Boolean).map(type => (
+                                                            <span key={type} className="text-[10px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded font-medium uppercase tracking-wide">
+                                                                {type === 'KEYWORD' ? 'Keyword' :
+                                                                 type === 'REGEX' ? 'Regex' :
+                                                                 type === 'MENTION' ? 'Mention' :
+                                                                 type === 'DIRECT_MESSAGE' ? 'Private Chat' :
+                                                                 type === 'ALL' ? 'All Messages' : type}
+                                                            </span>
+                                                        )) : null}
+                                                    </div>
                                                     {!rule.isActive && (
                                                         <span className="text-[10px] font-bold bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded uppercase tracking-wider">Paused</span>
                                                     )}
@@ -455,12 +526,19 @@ const Rules = () => {
                                         </div>
 
                                         <div className="bg-gray-50 rounded-lg p-3 text-sm text-gray-700 space-y-2 border border-gray-100">
-                                            {rule.triggerType !== 'ALL' && (
-                                                <div className="flex items-start gap-2">
-                                                    <span className="text-xs font-semibold text-gray-400 w-16 uppercase">Trigger:</span>
-                                                    <span className="font-mono bg-white px-1.5 py-0.5 rounded border border-gray-200 text-gray-800 break-all">{rule.triggerValue}</span>
-                                                </div>
-                                            )}
+                                            {(() => {
+                                                const types = rule.triggerType ? rule.triggerType.split(',').map(t => t.trim()).filter(Boolean) : [];
+                                                const hasValue = types.includes('KEYWORD') || types.includes('REGEX');
+                                                if (hasValue) {
+                                                    return (
+                                                        <div className="flex items-start gap-2">
+                                                            <span className="text-xs font-semibold text-gray-400 w-16 uppercase">Trigger:</span>
+                                                            <span className="font-mono bg-white px-1.5 py-0.5 rounded border border-gray-200 text-gray-800 break-all">{rule.triggerValue}</span>
+                                                        </div>
+                                                    );
+                                                }
+                                                return null;
+                                            })()}
                                             <div className="flex items-start gap-2">
                                                 <span className="text-xs font-semibold text-gray-400 w-16 uppercase">Action:</span>
                                                 <div className="flex-1">

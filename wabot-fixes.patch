@@ -1,0 +1,366 @@
+From 40c256d07590517a7095b835ab3a188842a052d7 Mon Sep 17 00:00:00 2001
+From: Wabot Fixes <fixes@wabot.local>
+Date: Sat, 13 Jun 2026 02:20:20 +0000
+Subject: [PATCH] fix: credit deduction, SSRF guard, webhook robustness, docker
+ hardening + docs
+
+---
+ FIXES.md                          | 118 ++++++++++++++++++++++++++++++
+ README.md                         |  10 ++-
+ docker-compose.yml                |  13 +++-
+ server/src/services/ruleEngine.js |  94 ++++++++++++++++++++----
+ 4 files changed, 217 insertions(+), 18 deletions(-)
+ create mode 100644 FIXES.md
+
+diff --git a/FIXES.md b/FIXES.md
+new file mode 100644
+index 0000000..b9ead58
+--- /dev/null
++++ b/FIXES.md
+@@ -0,0 +1,118 @@
++# 🔧 Wabot — Security & Reliability Fixes
++
++> **Tanggal:** 2026-06-13
++> **Scope:** `server/src/services/ruleEngine.js`, `docker-compose.yml`, `README.md`
++> **Tujuan:** menutup bug kritikal (credit & SSRF) + memperkuat robustness runtime dan deployment.
++
++---
++
++## Ringkasan Perubahan
++
++| ID | Severity | File | Status |
++|----|----------|------|--------|
++| B1 | 🔴 Critical | `ruleEngine.js` | ✅ Fixed |
++| B2 | 🔴 Critical | `ruleEngine.js` | ✅ Fixed |
++| B7 | 🟡 Medium | `ruleEngine.js` | ✅ Fixed |
++| B8 | 🟡 Medium | `ruleEngine.js` | ✅ Fixed |
++| B9 | 🟡 Medium | `ruleEngine.js` | ✅ Fixed |
++| B10 | 🟡 Medium | `ruleEngine.js` | ✅ Fixed |
++| B14 | 🟢 Low | `ruleEngine.js` | ✅ Fixed |
++| B6 | 🟠 High | `docker-compose.yml` | ✅ Fixed |
++| B12 | 🟡 Medium | `docker-compose.yml` | ✅ Fixed |
++| B3/B4 | 🟠 High | `README.md` | ✅ Documented |
++
++---
++
++## Detail Perbaikan
++
++### B1 — Credit tidak pernah dipotong (Critical)
++
++**Masalah:** `executeAction()` memanggil `creditService.checkCredits()` tetapi tidak pernah memanggil `deductCredit()`, sehingga saldo `credits` user `PAY_AS_YOU_GO` tidak pernah berkurang dari auto-reply.
++
++**Perbaikan:** Tambahkan `await creditService.deductCredit(rule.userId)` setelah setiap aksi yang berhasil mengirim pesan:
++- `API_CALL` — setelah request berhasil dieksekusi.
++- `RESPONSE` — setelah balasan teks/gambar terkirim.
++- `AI_REPLY` — setelah respons AI terkirim (hanya bila `response` valid).
++- `ACTIVATE_MINI_APP` — setelah pesan aktivasi terkirim.
++
++> Catatan: pemotongan dilakukan setelah aksi sukses, jadi user tidak terpotong saat aksi gagal.
++
++### B2 — SSRF pada action `API_CALL` (Critical)
++
++**Masalah:** `rule.apiUrl` (dikonfigurasi user) di-`fetch` langsung tanpa validasi, memungkinkan serangan SSRF ke IP internal (mis. `169.254.169.254`, `localhost`) dan protokol non-HTTPS.
++
++**Perbaikan:** Tambahkan helper `validateOutboundUrl()` (memblokir non-HTTPS + private/loopback/link-local IP) dan panggil sebelum fetch. Jika URL ditolak, kirim pesan error ke user dan hentikan eksekusi.
++
++```js
++const ALLOWED_OUTBOUND_PROTOCOLS = new Set(['https:']);
++const PRIVATE_IP_REGEX = /^(localhost|127\.|10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|169\.254\.|::1$|fc00:|fe80:)/i;
++```
++
++### B7 — `response.json()` tanpa cek status/content-type (Medium)
++
++**Masalah:** Bila webhook membalas `204`/HTML/empty body, `await response.json()` melempar error dan ditangkap diam-diam.
++
++**Perbaikan:** Cek `response.ok` (log warning bila non-OK) dan hanya `response.json()` ketika `content-type` mengandung `application/json`; selain itu fallback ke `response.text()`.
++
++### B8 — `executeAction()` tidak di-`await` (Medium)
++
++**Masalah:** Dipanggil fire-and-forget sebelum `return true`, sehingga error setelah return tidak terkelola dan urutan eksekusi tidak terjamin.
++
++**Perbaikan:** Ubah menjadi `await executeAction(rule, normalizedMsg)`.
++
++### B9 — Credential `QUERY` tidak di-encode (Medium)
++
++**Masalah:** `key=value` ditempel ke URL tanpa encoding → URL rusak bila value mengandung karakter khusus (`&`, spasi, dll).
++
++**Perbaikan:** Bungkus key & value dengan `encodeURIComponent()`.
++
++### B10 — Logika injeksi credential rancu (Medium)
++
++**Masalah:** Credential bertipe `BEARER` dengan `location='HEADER'` tidak pernah menambah header `Authorization` karena urutan `if/else if`.
++
++**Perbaikan:** Tangani `type === 'BEARER'` terlebih dahulu, terlepas dari `location`; baru kemudian penempatan `HEADER`/`QUERY`.
++
++### B14 — Telegram mention fallback terlalu luas (Low)
++
++**Masalah:** `else if (text.includes('@')) matched = true` membuat pesan apa pun yang memuat `@` memicu rule MENTION (false positive). Ada di blok KEYWORD on-mention dan MENTION.
++
++**Perbaikan:** Hapus fallback; hanya match `@${botUsername}` secara eksplisit.
++
++### B6 — Container backend jalan sebagai `root` (High)
++
++**Masalah:** `user: "root"` di `docker-compose.yml`.
++
++**Perbaikan:** Ganti ke `user: "1000:1000"`. Pastikan direktori volume (`./data`, `./server/prisma`) writable oleh UID tersebut:
++```bash
++sudo chown -R 1000:1000 ./data ./server/prisma
++```
++
++### B12 — Tidak ada healthcheck (Medium)
++
++**Masalah:** Endpoint `/health` ada tapi compose tidak memakainya; `frontend` hanya menunggu backend *start*, bukan *healthy*.
++
++**Perbaikan:** Tambahkan `healthcheck` pada service `backend` (hit `/health`) dan ubah `frontend.depends_on` menjadi `condition: service_healthy`.
++
++### B3 / B4 — Default credential & deteksi admin (High)
++
++**Perbaikan (dokumentasi + arahan):** README diberi peringatan keamanan: ganti password admin default segera, dan otorisasi admin harus ditegakkan di server (role di DB), bukan dari build arg frontend `VITE_ADMIN_*`. Port akses dikoreksi menjadi `8002` (dashboard) dan `3003` (API) sesuai mapping compose.
++
++---
++
++## Verifikasi
++
++```bash
++# Syntax check
++node --check server/src/services/ruleEngine.js
++
++# Compose validity
++docker compose config
++```
++
++## Belum Dikerjakan (rekomendasi lanjutan)
++
++- Enkripsi secret at-rest (`aiApiKey`, `Credential.value`) — perlu perubahan schema + migrasi (B5).
++- Atomic/transactional credit (hindari race condition saldo minus).
++- Rate limiting pada `/api/auth/login`.
++- Automated tests untuk `ruleEngine` & `creditService`.
++- Tambah service DB/Redis ke compose atau perjelas dependensi network eksternal `shared_apps` (B17).
+diff --git a/README.md b/README.md
+index e4381cd..65f8f5e 100644
+--- a/README.md
++++ b/README.md
+@@ -30,11 +30,15 @@ The easiest way to run Wabot is using Docker Compose.
+     docker-compose up -d --build
+     ```
+ 
+-3.  Access the application:
+-    - **Dashboard**: [http://localhost](http://localhost)
+-    - **API/Server**: [http://localhost:3002](http://localhost:3002)
++4.  Access the application (ports as mapped in `docker-compose.yml`):
++    - **Dashboard**: [http://localhost:8002](http://localhost:8002)
++    - **API/Server**: [http://localhost:3003](http://localhost:3003)
+ 
+ ### Default Credentials
++> ⚠️ **Security:** The default admin account below is for the very first login only.
++> **Change the password immediately** after logging in, and never ship these defaults
++> to production. Admin authorization is enforced server-side (role in DB), not by the
++> frontend `VITE_ADMIN_*` build args.
+ - **Username**: `admin`
+ - **Password**: `adminpassword`
+ 
+diff --git a/docker-compose.yml b/docker-compose.yml
+index 814b06e..752541d 100644
+--- a/docker-compose.yml
++++ b/docker-compose.yml
+@@ -2,7 +2,9 @@ services:
+   backend:
+     build: ./server
+     container_name: wabot-backend
+-    user: "root"
++    # Run as non-root for safety. Make sure the mounted ./data and ./server/prisma
++    # directories are writable by this UID (e.g. `sudo chown -R 1000:1000 ./data`).
++    user: "1000:1000"
+     ports:
+       - "3003:3002"
+     volumes:
+@@ -19,6 +21,12 @@ services:
+       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+       - PORT=3002
+       - TZ=Asia/Jakarta
++    healthcheck:
++      test: ["CMD", "wget", "-qO-", "http://localhost:3002/health"]
++      interval: 30s
++      timeout: 5s
++      retries: 3
++      start_period: 20s
+     restart: always
+     networks:
+       - shared_apps
+@@ -34,7 +42,8 @@ services:
+     ports:
+       - "8002:80"
+     depends_on:
+-      - backend
++      backend:
++        condition: service_healthy
+     restart: always
+     networks:
+       - shared_apps
+diff --git a/server/src/services/ruleEngine.js b/server/src/services/ruleEngine.js
+index 2bdfa3f..d393614 100644
+--- a/server/src/services/ruleEngine.js
++++ b/server/src/services/ruleEngine.js
+@@ -14,6 +14,37 @@ import { executeApp } from '../apps/AppExecutor.js';
+ import { getRegistryForUser } from '../apps/AppRegistry.js';
+ import { setAppSession, getAppSession, clearAppSession } from '../apps/AppSessionManager.js';
+ 
++// ─── SSRF-safe outbound URL validation (shared guard for webhook API_CALL) ───
++const ALLOWED_OUTBOUND_PROTOCOLS = new Set(['https:']);
++const PRIVATE_IP_REGEX = /^(localhost|127\.|10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|169\.254\.|::1$|fc00:|fe80:)/i;
++
++const validateOutboundUrl = (urlString) => {
++    let parsed;
++    try {
++        parsed = new URL(urlString);
++    } catch {
++        throw new Error(`Invalid URL: ${urlString}`);
++    }
++    if (!ALLOWED_OUTBOUND_PROTOCOLS.has(parsed.protocol)) {
++        throw new Error(`Protocol not allowed: ${parsed.protocol}`);
++    }
++    if (PRIVATE_IP_REGEX.test(parsed.hostname)) {
++        throw new Error(`Access to internal network is blocked: ${parsed.hostname}`);
++    }
++    return parsed.toString();
++};
++
++// fetch with an AbortController timeout (default 15s) so a slow webhook can't hang the worker
++const fetchWithTimeout = async (url, options = {}, timeoutMs = 15_000) => {
++    const controller = new AbortController();
++    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
++    try {
++        return await fetch(url, { ...options, signal: controller.signal });
++    } finally {
++        clearTimeout(timeoutId);
++    }
++};
++
+ export const processMessage = async (normalizedMsg) => {
+     try {
+         messagesReceivedTotal.inc();
+@@ -132,7 +163,6 @@ export const processMessage = async (normalizedMsg) => {
+                     } else if (platform === 'telegram') {
+                         const botUser = normalizedMsg.botUsername;
+                         if (botUser && text.includes(`@${botUser}`)) matched = true;
+-                        else if (text.includes('@')) matched = true; // Fallback
+                     }
+                 } else {
+                     if (text.toLowerCase().includes(rule.triggerValue.toLowerCase())) matched = true;
+@@ -168,14 +198,13 @@ export const processMessage = async (normalizedMsg) => {
+                 } else if (platform === 'telegram') {
+                     const botUser = normalizedMsg.botUsername;
+                     if (botUser && text.includes(`@${botUser}`)) matched = true;
+-                    else if (text.includes('@')) matched = true; // Fallback
+                 }
+             }
+ 
+             if (matched) {
+                 logger.info(`Rule ${rule.id} matched for session ${sessionId}`);
+                 rulesTriggeredTotal.inc({ action_type: rule.actionType });
+-                executeAction(rule, normalizedMsg);
++                await executeAction(rule, normalizedMsg);
+                 return true;
+             }
+         }
+@@ -282,15 +311,18 @@ const executeAction = async (rule, normalizedMsg) => {
+             const method = rule.apiMethod || 'POST';
+             const headers = { 'Content-Type': 'application/json' };
+ 
+-            // Inject Credential if available
++            // Inject Credential if available.
++            // Handle BEARER type first (independent of location), then HEADER/QUERY placement.
++            // QUERY key & value are URL-encoded to avoid breaking the URL on special characters.
+             if (rule.credential) {
+-                if (rule.credential.location === 'HEADER' && rule.credential.key) {
+-                    headers[rule.credential.key] = rule.credential.value;
+-                } else if (rule.credential.location === 'QUERY') {
++                const cred = rule.credential;
++                if (cred.type === 'BEARER') {
++                    headers['Authorization'] = `Bearer ${cred.value}`;
++                } else if (cred.location === 'HEADER' && cred.key) {
++                    headers[cred.key] = cred.value;
++                } else if (cred.location === 'QUERY' && cred.key) {
+                     const separator = url.includes('?') ? '&' : '?';
+-                    url += `${separator}${rule.credential.key}=${rule.credential.value}`;
+-                } else if (rule.credential.type === 'BEARER') {
+-                    headers['Authorization'] = `Bearer ${rule.credential.value}`;
++                    url += `${separator}${encodeURIComponent(cred.key)}=${encodeURIComponent(cred.value)}`;
+                 }
+             }
+ 
+@@ -303,11 +335,44 @@ const executeAction = async (rule, normalizedMsg) => {
+                 options.body = JSON.stringify(payload);
+             }
+ 
+-            const response = await fetch(url, options); // Use dynamic URL
++            // SSRF guard: block internal/private targets and non-HTTPS before fetching
++            let safeUrl;
++            try {
++                safeUrl = validateOutboundUrl(url);
++            } catch (e) {
++                logger.error(`Rule ${rule.id} API_CALL blocked by SSRF guard: ${e.message}`);
++                await messageAdapter.sendMessage(
++                    normalizedMsg,
++                    { text: `⚠️ *System Error*: Webhook URL is not allowed (must be a public HTTPS endpoint).` },
++                    rule.userId
++                );
++                return;
++            }
++
++            const response = await fetchWithTimeout(safeUrl, options); // Use validated URL + timeout
+             apiCallsTotal.inc({ method: rule.apiMethod || 'POST' });
+ 
+-            const data = await response.json();
+-            logger.info(`Rule ${rule.id} API executed to ${url}. Status: ${response.status}`);
++            if (!response.ok) {
++                logger.warn(`Rule ${rule.id} API returned non-OK status ${response.status} from ${safeUrl}`);
++            }
++
++            // Safe response parsing: only parse JSON when the body is actually JSON
++            let data = null;
++            const contentType = response.headers.get('content-type') || '';
++            if (contentType.includes('application/json')) {
++                try {
++                    data = await response.json();
++                } catch (e) {
++                    logger.warn(`Rule ${rule.id} failed to parse JSON response: ${e.message}`);
++                }
++            } else {
++                const bodyText = await response.text().catch(() => '');
++                if (bodyText) data = { message: bodyText };
++            }
++            logger.info(`Rule ${rule.id} API executed to ${safeUrl}. Status: ${response.status}`);
++
++            // Credit is consumed once for a successful API_CALL action
++            await creditService.deductCredit(rule.userId);
+ 
+             // Optional: If the API returns a 'message' field, reply with it (Fonnte-like behavior)
+             // Filter out generic automation acknowledgment messages (n8n, Make, Zapier, etc.)
+@@ -342,6 +407,7 @@ const executeAction = async (rule, normalizedMsg) => {
+                 await messageAdapter.sendMessage(normalizedMsg, { text: rule.responseContent }, rule.userId);
+             }
+ 
++            await creditService.deductCredit(rule.userId);
+             logger.info(`Rule ${rule.id} auto-reply sent to ${jid}`);
+         } catch (error) {
+             logger.error(`Rule ${rule.id} auto-reply failed: ${error.message}`);
+@@ -382,6 +448,7 @@ const executeAction = async (rule, normalizedMsg) => {
+                 } else {
+                     await messageAdapter.sendMessage(normalizedMsg, { text: response }, rule.userId);
+                 }
++                await creditService.deductCredit(rule.userId);
+                 logger.info(`Rule ${rule.id} AI response sent to ${jid}`);
+             } else {
+                 logger.warn(`Rule ${rule.id} AI response generation failed`);
+@@ -408,6 +475,7 @@ const executeAction = async (rule, normalizedMsg) => {
+                 `✅ *${manifest.icon || ''} ${manifest.name}* siap!\n\nSilahkan ikuti instruksi selanjutnya. Sesi aktif 5 menit.`;
+ 
+             await messageAdapter.sendMessage(normalizedMsg, { text: activationMsg }, rule.userId);
++            await creditService.deductCredit(rule.userId);
+             logger.info(`Rule ${rule.id}: Activated Mini App '${rule.miniAppId}' for ${jid}`);
+         } catch (error) {
+             logger.error(`Rule ${rule.id} ACTIVATE_MINI_APP failed: ${error.message}`);
+-- 
+2.49.0
+
