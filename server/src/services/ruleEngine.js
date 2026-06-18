@@ -16,6 +16,36 @@ import { getAppSession, clearAppSession } from '../apps/AppSessionManager.js';
 import { executeApiCall } from './outboundRequest.js';
 import { matchKeyword } from '../utils/triggerMatch.js';
 
+// Bagian nomor/identifier sebelum '@' (mengabaikan device suffix seperti ':12')
+const bareUser = (jid) => {
+    if (!jid || typeof jid !== 'string') return null;
+    return jid.split('@')[0].split(':')[0];
+};
+
+// Deteksi apakah BOT sendiri yang di-tag/di-mention.
+// Baileys 7.x (sistem LID) bisa mengirim mentionedJid dalam format @lid sementara
+// client.user.id memakai JID nomor telepon (atau sebaliknya). Karena itu kita bandingkan
+// terhadap KEDUA identitas (id & lid), baik JID penuh maupun bagian nomornya.
+const isBotMentioned = (client, mentions) => {
+    if (!Array.isArray(mentions) || mentions.length === 0) return false;
+    const candidates = new Set();
+    for (const raw of [client?.user?.id, client?.user?.lid]) {
+        if (!raw) continue;
+        let norm = raw;
+        try { norm = jidNormalizedUser(raw); } catch { /* abaikan JID tak valid */ }
+        candidates.add(norm);
+        const bare = bareUser(norm);
+        if (bare) candidates.add(bare);
+    }
+    if (candidates.size === 0) return false;
+    return mentions.some((m) => {
+        if (!m) return false;
+        if (candidates.has(m)) return true;
+        const bare = bareUser(m);
+        return bare ? candidates.has(bare) : false;
+    });
+};
+
 export const processMessage = async (normalizedMsg) => {
     try {
         messagesReceivedTotal.inc();
@@ -134,8 +164,7 @@ export const processMessage = async (normalizedMsg) => {
                             || msgContent?.stickerMessage?.contextInfo
                             || {};
                         const mentions = contextInfo?.mentionedJid || [];
-                        const botJid = client?.user?.id ? jidNormalizedUser(client.user.id) : null;
-                        if (botJid && mentions.includes(botJid)) matched = true;
+                        if (isBotMentioned(client, mentions)) matched = true;
                     } else if (platform === 'telegram') {
                         const botUser = normalizedMsg.botUsername;
                         if (botUser && text.includes(`@${botUser}`)) matched = true;
@@ -169,8 +198,7 @@ export const processMessage = async (normalizedMsg) => {
                         || msgContent?.stickerMessage?.contextInfo
                         || {};
                     const mentions = contextInfo?.mentionedJid || [];
-                    const botJid = client?.user?.id ? jidNormalizedUser(client.user.id) : null;
-                    if (botJid && mentions.includes(botJid)) matched = true;
+                    if (isBotMentioned(client, mentions)) matched = true;
                 } else if (platform === 'telegram') {
                     const botUser = normalizedMsg.botUsername;
                     if (botUser && text.includes(`@${botUser}`)) matched = true;
