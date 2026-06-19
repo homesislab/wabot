@@ -2,3 +2,4 @@
 client/.env
 server/logs/app.log
 data/
+*.bundle

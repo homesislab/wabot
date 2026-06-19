@@ -4,7 +4,7 @@ WORKDIR /app
 
 # Install system dependencies (needed for Prisma, Baileys, and audio processing)
 # Run as root for apt-get
-RUN apt-get update && apt-get install -y openssl procps ffmpeg && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y openssl procps ffmpeg wget && rm -rf /var/lib/apt/lists/*
 
 # Create app directory permission
 RUN chown node:node /app

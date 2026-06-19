@@ -37,6 +37,7 @@ const isBotMentioned = (client, mentions) => {
         const bare = bareUser(norm);
         if (bare) candidates.add(bare);
     }
+    logger.info(`[Mention Debug] Candidates: ${Array.from(candidates).join(', ')} | Mentions: ${mentions.join(', ')}`);
     if (candidates.size === 0) return false;
     return mentions.some((m) => {
         if (!m) return false;
@@ -57,9 +58,11 @@ const ruleTriggerTypes = (rule) =>
 const ruleHasTriggerType = (rule, type) =>
     ruleTriggerTypes(rule).includes(String(type).toUpperCase());
 
-// Ekstrak daftar mentionedJid dari semua tipe pesan WA (text, image, video, dll).
+import { extractMessageContent } from '@whiskeysockets/baileys';
+
+// Ekstrak daftar mentionedJid dan participant dari pesan yang di-reply
 const extractMentions = (rawMessage) => {
-    const msgContent = rawMessage?.message;
+    const msgContent = extractMessageContent(rawMessage?.message);
     if (!msgContent) return [];
     const contextInfo = msgContent?.extendedTextMessage?.contextInfo
         || msgContent?.imageMessage?.contextInfo
@@ -68,15 +71,20 @@ const extractMentions = (rawMessage) => {
         || msgContent?.audioMessage?.contextInfo
         || msgContent?.stickerMessage?.contextInfo
         || {};
-    return contextInfo?.mentionedJid || [];
+        
+    const mentions = [...(contextInfo?.mentionedJid || [])];
+    if (contextInfo?.participant) {
+        mentions.push(contextInfo.participant);
+    }
+    return mentions;
 };
 
 // Apakah chat ini direct message (japri), bukan group?
 const isDirectMessage = (normalizedMsg) => {
     const { platform, jid, rawMessage } = normalizedMsg;
     if (platform === 'whatsapp') {
-        // Group WA berakhiran @g.us; japri @s.whatsapp.net.
-        return typeof jid === 'string' && jid.endsWith('@s.whatsapp.net');
+        // Group WA berakhiran @g.us; japri @s.whatsapp.net atau @lid
+        return typeof jid === 'string' && (jid.endsWith('@s.whatsapp.net') || jid.endsWith('@lid'));
     }
     if (platform === 'telegram') {
         return rawMessage?.chat?.type === 'private';

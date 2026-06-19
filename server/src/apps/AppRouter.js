@@ -13,6 +13,7 @@
 import { logger } from '../config/logger.js';
 import { getAppSession } from './AppSessionManager.js';
 import { matchAnyKeyword } from '../utils/triggerMatch.js';
+import { extractMessageContent } from '@whiskeysockets/baileys';
 
 /**
  * Cari app manifest yang cocok berdasarkan pesan masuk
@@ -27,10 +28,16 @@ export const route = async (normalizedMsg, registry = [], userId) => {
   // Gunakan participant (group) atau jid (private chat) sebagai sender identifier
   const contactJid = normalizedMsg.participant || normalizedMsg.jid;
 
+  const trueMsg = extractMessageContent(rawMessage?.message);
+
   // Deteksi tipe pesan
-  const isVoiceNote = rawMessage?.message?.audioMessage?.ptt === true;
-  const isImage     = !!(rawMessage?.message?.imageMessage);
-  const isMention   = !!(rawMessage?.message?.extendedTextMessage?.contextInfo?.mentionedJid?.length);
+  const isVoiceNote = trueMsg?.audioMessage?.ptt === true;
+  const isImage     = !!(trueMsg?.imageMessage);
+  
+  const contextInfo = trueMsg?.extendedTextMessage?.contextInfo 
+                   || trueMsg?.imageMessage?.contextInfo
+                   || trueMsg?.videoMessage?.contextInfo;
+  const isMention   = !!(contextInfo?.mentionedJid?.length || contextInfo?.participant);
   const textLower   = (text || '').toLowerCase().trim();
 
   for (const manifest of registry) {

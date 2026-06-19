@@ -1,4 +1,4 @@
-import makeWASocket, { useMultiFileAuthState, DisconnectReason, Browsers, fetchLatestBaileysVersion, makeCacheableSignalKeyStore } from '@whiskeysockets/baileys';
+import makeWASocket, { useMultiFileAuthState, DisconnectReason, Browsers, fetchLatestBaileysVersion, makeCacheableSignalKeyStore, extractMessageContent } from '@whiskeysockets/baileys';
 import { prisma } from '../prisma.js';
 import { logger } from '../config/logger.js';
 import fs from 'fs';
@@ -122,12 +122,14 @@ export const startSession = async (sessionId) => {
                 try {
                     const isFromMe = msg.key.fromMe;
 
-                    // Deteksi voice note (Push-to-Talk)
-                    const isVoiceNote = msg.message?.audioMessage?.ptt === true;
+                    const trueMsg = extractMessageContent(msg.message);
 
-                    const content = msg.message?.conversation ||
-                        msg.message?.extendedTextMessage?.text ||
-                        msg.message?.imageMessage?.caption ||
+                    // Deteksi voice note (Push-to-Talk)
+                    const isVoiceNote = trueMsg?.audioMessage?.ptt === true;
+
+                    const content = trueMsg?.conversation ||
+                        trueMsg?.extendedTextMessage?.text ||
+                        trueMsg?.imageMessage?.caption ||
                         "";
 
                     // Skip pesan kosong KECUALI voice note

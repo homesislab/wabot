@@ -13,6 +13,7 @@ set -a
 source "$SCRIPT_DIR/.env"
 set +a
 
+npm install
 npm run build
 
 echo "📦 Copying dist to container..."
