@@ -15,7 +15,108 @@ import { getRegistryForUser } from '../apps/AppRegistry.js';
 import { getAppSession, clearAppSession } from '../apps/AppSessionManager.js';
 import { executeApiCall } from './outboundRequest.js';
 import { matchKeyword } from '../utils/triggerMatch.js';
-import { extractMessageContent } from '@whiskeysockets/baileys';
+import { extractMessageContent, downloadMediaMessage } from '@whiskeysockets/baileys';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+// ─── Media extractor untuk webhook payload ──────────────────────────────────────────────────────
+/**
+ * Download media dari pesan WhatsApp dan simpan ke folder uploads
+ * Mengembalikan info media siap pakai untuk dikirim ke n8n/webhook
+ *
+ * @param {object} normalizedMsg
+ * @param {number} userId
+ * @param {object} req - opsional, untuk build public URL (fallback ke env BASE_URL)
+ * @returns {Promise<object|null>} mediaInfo atau null jika bukan media
+ */
+const extractAndSaveMedia = async (normalizedMsg, userId) => {
+    const { rawMessage, client } = normalizedMsg;
+    if (!rawMessage) return null;
+
+    const trueMsg = extractMessageContent(rawMessage?.message);
+    if (!trueMsg) return null;
+
+    // Deteksi tipe media
+    let mediaType = null;
+    let mimetype  = null;
+    let caption   = null;
+    let filename  = null;
+    let ext       = 'bin';
+
+    if (trueMsg.audioMessage) {
+        mediaType = trueMsg.audioMessage.ptt ? 'voice_note' : 'audio';
+        mimetype  = trueMsg.audioMessage.mimetype || 'audio/ogg';
+        ext       = mimetype.includes('mp4') ? 'm4a' : 'ogg';
+    } else if (trueMsg.imageMessage) {
+        mediaType = 'image';
+        mimetype  = trueMsg.imageMessage.mimetype || 'image/jpeg';
+        caption   = trueMsg.imageMessage.caption || null;
+        ext       = mimetype.includes('png') ? 'png' : 'jpg';
+    } else if (trueMsg.videoMessage) {
+        mediaType = 'video';
+        mimetype  = trueMsg.videoMessage.mimetype || 'video/mp4';
+        caption   = trueMsg.videoMessage.caption || null;
+        ext       = 'mp4';
+    } else if (trueMsg.documentMessage) {
+        mediaType = 'document';
+        mimetype  = trueMsg.documentMessage.mimetype || 'application/octet-stream';
+        filename  = trueMsg.documentMessage.fileName || null;
+        ext       = filename ? path.extname(filename).replace('.', '') || 'bin' : 'bin';
+    } else if (trueMsg.stickerMessage) {
+        mediaType = 'sticker';
+        mimetype  = trueMsg.stickerMessage.mimetype || 'image/webp';
+        ext       = 'webp';
+    }
+
+    if (!mediaType) return null;
+
+    try {
+        // Download buffer dari Baileys
+        const buffer = await downloadMediaMessage(
+            rawMessage,
+            'buffer',
+            {},
+            { logger, reuploadRequest: client?.updateMediaMessage }
+        );
+
+        if (!buffer || buffer.length === 0) {
+            logger.warn('[RuleEngine] Media buffer empty, skip media attach');
+            return null;
+        }
+
+        // Simpan ke uploads/{userId}/webhook-media/
+        const __dirname  = path.dirname(fileURLToPath(import.meta.url));
+        const uploadRoot = path.resolve(__dirname, '../../uploads');
+        const saveDir    = path.join(uploadRoot, String(userId), 'webhook-media');
+        fs.mkdirSync(saveDir, { recursive: true });
+
+        const fileId   = `wh_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+        const saveName = `${fileId}.${ext}`;
+        const savePath = path.join(saveDir, saveName);
+        fs.writeFileSync(savePath, buffer);
+
+        // Build public URL
+        const baseUrl = process.env.BASE_URL || process.env.PUBLIC_URL || '';
+        const publicUrl = baseUrl
+            ? `${baseUrl.replace(/\/$/, '')}/uploads/${userId}/webhook-media/${saveName}`
+            : `/uploads/${userId}/webhook-media/${saveName}`;
+
+        logger.info(`[RuleEngine] Media saved for webhook: ${savePath} (${buffer.length} bytes)`);
+
+        return {
+            type:     mediaType,
+            url:      publicUrl,
+            mimetype,
+            fileSize: buffer.length,
+            caption,
+            filename,
+        };
+    } catch (err) {
+        logger.warn(`[RuleEngine] Failed to extract media for webhook: ${err.message}`);
+        return null;
+    }
+};
 
 // Bagian nomor/identifier sebelum '@' (mengabaikan device suffix seperti ':12')
 const bareUser = (jid) => {
@@ -345,11 +446,24 @@ const executeAction = async (rule, normalizedMsg) => {
                 return; // Stop execution if JSON is invalid
             }
 
+            // Coba ekstrak & simpan media (audio/gambar/video/dokumen) jika ada
+            const mediaInfo = await extractAndSaveMedia(normalizedMsg, rule.userId);
+
             const payload = {
                 ...apiPayloadObj,
                 sessionId,
-                message: rawMessage,
-                trigger: rule.triggerValue
+                sender: {
+                    name:   normalizedMsg.pushName || context.senderName,
+                    number: context.senderNumber,
+                    jid:    normalizedMsg.participant || normalizedMsg.jid,
+                },
+                messageText: context.messageText,
+                media:       mediaInfo,   // null jika bukan pesan media
+                trigger:     rule.triggerValue,
+                platform:    normalizedMsg.platform || 'whatsapp',
+                timestamp:   new Date().toISOString(),
+                // rawMessage tetap ada untuk kompatibilitas
+                message:     rawMessage,
             };
 
             const method = rule.apiMethod || 'POST';
