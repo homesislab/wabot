@@ -15,6 +15,7 @@ import { getRegistryForUser } from '../apps/AppRegistry.js';
 import { getAppSession, clearAppSession } from '../apps/AppSessionManager.js';
 import { executeApiCall } from './outboundRequest.js';
 import { matchKeyword } from '../utils/triggerMatch.js';
+import { extractMessageContent } from '@whiskeysockets/baileys';
 
 // Bagian nomor/identifier sebelum '@' (mengabaikan device suffix seperti ':12')
 const bareUser = (jid) => {
@@ -37,7 +38,7 @@ const isBotMentioned = (client, mentions) => {
         const bare = bareUser(norm);
         if (bare) candidates.add(bare);
     }
-    logger.info(`[Mention Debug] Candidates: ${Array.from(candidates).join(', ')} | Mentions: ${mentions.join(', ')}`);
+    logger.debug(`[isBotMentioned] candidates=${Array.from(candidates).join(',')} mentions=${mentions.join(',')}`);
     if (candidates.size === 0) return false;
     return mentions.some((m) => {
         if (!m) return false;
@@ -57,8 +58,6 @@ const ruleTriggerTypes = (rule) =>
 
 const ruleHasTriggerType = (rule, type) =>
     ruleTriggerTypes(rule).includes(String(type).toUpperCase());
-
-import { extractMessageContent } from '@whiskeysockets/baileys';
 
 // Ekstrak daftar mentionedJid dan participant dari pesan yang di-reply
 const extractMentions = (rawMessage) => {
