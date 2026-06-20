@@ -31,7 +31,8 @@ export const route = async (normalizedMsg, registry = [], userId) => {
   const trueMsg = extractMessageContent(rawMessage?.message);
 
   // Deteksi tipe pesan
-  const isVoiceNote = trueMsg?.audioMessage?.ptt === true;
+  // Deteksi audio: PTT (voice note rekaman) ATAU file audio yang diupload
+  const isVoiceNote = !!(trueMsg?.audioMessage);
   const isImage     = !!(trueMsg?.imageMessage);
   
   const contextInfo = trueMsg?.extendedTextMessage?.contextInfo 
@@ -69,19 +70,26 @@ export const route = async (normalizedMsg, registry = [], userId) => {
       // ─── KEYWORD_THEN_VOICE (2 fase) ────────────────────────────────────────
       case 'KEYWORD_THEN_VOICE': {
         const keywords = Array.isArray(trigger.value) ? trigger.value : [trigger.value];
+        const hasKeyword = matchAnyKeyword(textLower, keywords, 'contains');
 
-        // Fase 1: User kirim keyword → simpan session, beri konfirmasi
-        if (matchAnyKeyword(textLower, keywords, 'contains')) {
-          // Session & pesan aktivasi di-handle oleh activateMiniApp() saat fase ACTIVATION
+        // Kasus spesial: User kirim audio + keyword di caption sekaligus
+        // Contoh: kirim file audio dengan caption "!summary" atau "@bot buatkan summary"
+        if (isVoiceNote && hasKeyword) {
+          logger.info(`[AppRouter] KEYWORD_THEN_VOICE: audio+keyword in caption → EXECUTION ${manifest.id}`);
+          return { manifest, sessionCleared: true, phase: 'EXECUTION' };
+        }
+
+        // Fase 1: User kirim keyword saja → simpan session, beri konfirmasi
+        if (hasKeyword && !isVoiceNote) {
           logger.info(`[AppRouter] KEYWORD_THEN_VOICE phase-1: keyword matched → activate ${manifest.id}`);
           return { manifest, sessionCleared: false, phase: 'ACTIVATION' };
         }
 
-        // Fase 2: User kirim voice note → cek apakah ada session aktif
+        // Fase 2: User kirim audio → cek apakah ada session aktif
         if (isVoiceNote && userId && contactJid) {
           const pendingAppId = await getAppSession(userId, contactJid);
           if (pendingAppId === manifest.id) {
-            logger.info(`[AppRouter] KEYWORD_THEN_VOICE phase-2: voice note with active session → ${manifest.id}`);
+            logger.info(`[AppRouter] KEYWORD_THEN_VOICE phase-2: audio with active session → ${manifest.id}`);
             return { manifest, sessionCleared: true, phase: 'EXECUTION' };
           }
         }

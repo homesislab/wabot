@@ -23,7 +23,8 @@ export const handler = async (normalizedMsg, context) => {
 
     // Gunakan extractMessageContent agar wrapped messages (ephemeral, viewOnce, dll) terdeteksi
     const trueMsg = extractMessageContent(rawMessage?.message);
-    const isVoiceNote = trueMsg?.audioMessage?.ptt === true;
+    // Deteksi audio: PTT (voice note rekaman) ATAU file audio yang diupload (ptt: false)
+    const isVoiceNote = !!(trueMsg?.audioMessage);
 
     logger.info(`[DynamicHandler] App: ${appConfig.name} | triggerType: ${appConfig.triggerType} | isVoice: ${isVoiceNote}`);
 

@@ -124,15 +124,17 @@ export const startSession = async (sessionId) => {
 
                     const trueMsg = extractMessageContent(msg.message);
 
-                    // Deteksi voice note (Push-to-Talk)
-                    const isVoiceNote = trueMsg?.audioMessage?.ptt === true;
+                    // Deteksi audio: PTT (voice note rekaman) ATAU file audio yang diupload
+                    const isVoiceNote = !!(trueMsg?.audioMessage);
+                    const isPTT       = trueMsg?.audioMessage?.ptt === true;
 
                     const content = trueMsg?.conversation ||
                         trueMsg?.extendedTextMessage?.text ||
                         trueMsg?.imageMessage?.caption ||
+                        trueMsg?.audioMessage?.caption ||
                         "";
 
-                    // Skip pesan kosong KECUALI voice note
+                    // Skip pesan kosong KECUALI ada audio (voice note maupun file audio)
                     if (!content && !isVoiceNote) continue;
 
                     const remoteJid = msg.key.remoteJid;
@@ -143,7 +145,7 @@ export const startSession = async (sessionId) => {
                             direction: isFromMe ? 'OUT' : 'IN',
                             from: isFromMe ? sessionId : remoteJid,
                             to: isFromMe ? remoteJid : sessionId,
-                            content: isVoiceNote ? '[voice note]' : content,
+                            content: isPTT ? '[voice note]' : isVoiceNote ? '[audio file]' : content,
                             status: isFromMe ? 'SENT' : 'RECEIVED'
                         }
                     });
