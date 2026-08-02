@@ -72,10 +72,10 @@ export default function Rules() {
   }, [formData.sessionId]);
 
   const fetchRules       = async () => { const r = await api.get('/rules');       setRules(r.data); };
-  const fetchSessions    = async () => { try { const r = await api.get('/sessions');    setSessions(r.data); } catch {}};
-  const fetchCredentials = async () => { try { const r = await api.get('/credentials'); setCredentials(r.data); } catch {}};
-  const fetchMiniApps    = async () => { try { const r = await api.get('/apps');        setMiniApps(r.data || []); } catch {}};
-  const fetchGroups = async (sid) => { try { const r = await api.get(`/sessions/${sid}/groups`); setGroups(r.data); } catch {}};
+  const fetchSessions    = async () => { try { const r = await api.get('/sessions');    setSessions(r.data); } catch { /* ignore */ } };
+  const fetchCredentials = async () => { try { const r = await api.get('/credentials'); setCredentials(r.data); } catch { /* ignore */ } };
+  const fetchMiniApps    = async () => { try { const r = await api.get('/apps');        setMiniApps(r.data || []); } catch { /* ignore */ } };
+  const fetchGroups = async (sid) => { try { const r = await api.get(`/sessions/${sid}/groups`); setGroups(r.data); } catch { /* ignore */ } };
 
   const handleSubmit = async (e) => {
     e.preventDefault(); setSaving(true);
@@ -125,7 +125,7 @@ export default function Rules() {
 
   const openGallery = async () => {
     setShowGallery(true);
-    try { const r = await api.get('/upload'); setGalleryImages(r.data); } catch {}
+    try { const r = await api.get('/upload'); setGalleryImages(r.data); } catch { /* ignore */ }
   };
 
   const handleDelete = async (id) => {
