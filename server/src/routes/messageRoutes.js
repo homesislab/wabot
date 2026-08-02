@@ -21,7 +21,6 @@ const router = express.Router();
  *               - sessionId
  *               - to
  *               - type
- *               - content
  *             properties:
  *               sessionId:
  *                 type: string
@@ -30,14 +29,27 @@ const router = express.Router();
  *                 description: Phone number or JID
  *               type:
  *                 type: string
- *                 enum: [TEXT, IMAGE]
+ *                 enum: [TEXT, IMAGE, LOCATION]
  *               content:
  *                 type: string
+ *                 description: Message text (required for TEXT; optional caption for IMAGE)
  *               mediaUrl:
  *                 type: string
+ *                 description: Media URL (required for IMAGE)
+ *               latitude:
+ *                 type: number
+ *                 description: Latitude in decimal degrees (required for LOCATION)
+ *               longitude:
+ *                 type: number
+ *                 description: Longitude in decimal degrees (required for LOCATION)
+ *               locationName:
+ *                 type: string
+ *                 description: Optional location label shown in WhatsApp (LOCATION only)
  *     responses:
  *       200:
  *         description: Message sent successfully
+ *       400:
+ *         description: Invalid or missing fields for the given type
  *       403:
  *         description: Unauthorized session access
  *       404:

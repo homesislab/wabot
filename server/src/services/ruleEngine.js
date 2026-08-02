@@ -35,46 +35,78 @@ const extractAndSaveMedia = async (normalizedMsg, userId) => {
     if (!rawMessage) return null;
 
     const trueMsg = extractMessageContent(rawMessage?.message);
-    if (!trueMsg) return null;
 
-    // Deteksi tipe media
+    // Deteksi tipe media dari pesan langsung
     let mediaType = null;
     let mimetype  = null;
     let caption   = null;
     let filename  = null;
     let ext       = 'bin';
+    let targetMsg = rawMessage;  // WAMessage untuk downloadMediaMessage
+    let isFromQuoted = false;
 
-    if (trueMsg.audioMessage) {
+    if (trueMsg?.audioMessage) {
         mediaType = trueMsg.audioMessage.ptt ? 'voice_note' : 'audio';
         mimetype  = trueMsg.audioMessage.mimetype || 'audio/ogg';
         ext       = mimetype.includes('mp4') ? 'm4a' : 'ogg';
-    } else if (trueMsg.imageMessage) {
+    } else if (trueMsg?.imageMessage) {
         mediaType = 'image';
         mimetype  = trueMsg.imageMessage.mimetype || 'image/jpeg';
         caption   = trueMsg.imageMessage.caption || null;
         ext       = mimetype.includes('png') ? 'png' : 'jpg';
-    } else if (trueMsg.videoMessage) {
+    } else if (trueMsg?.videoMessage) {
         mediaType = 'video';
         mimetype  = trueMsg.videoMessage.mimetype || 'video/mp4';
         caption   = trueMsg.videoMessage.caption || null;
         ext       = 'mp4';
-    } else if (trueMsg.documentMessage) {
+    } else if (trueMsg?.documentMessage) {
         mediaType = 'document';
         mimetype  = trueMsg.documentMessage.mimetype || 'application/octet-stream';
         filename  = trueMsg.documentMessage.fileName || null;
         ext       = filename ? path.extname(filename).replace('.', '') || 'bin' : 'bin';
-    } else if (trueMsg.stickerMessage) {
+    } else if (trueMsg?.stickerMessage) {
         mediaType = 'sticker';
         mimetype  = trueMsg.stickerMessage.mimetype || 'image/webp';
         ext       = 'webp';
+    } else {
+        // Tidak ada media langsung - cek apakah ada quoted audio
+        const ctxInfo = trueMsg?.extendedTextMessage?.contextInfo
+                      || trueMsg?.imageMessage?.contextInfo
+                      || trueMsg?.videoMessage?.contextInfo
+                      || trueMsg?.audioMessage?.contextInfo
+                      || trueMsg?.documentMessage?.contextInfo
+                      || {};
+
+        const quotedAudio = ctxInfo?.quotedMessage?.audioMessage;
+        if (quotedAudio) {
+            // Construct a fake WAMessage untuk download quoted audio
+            // Baileys downloadMediaMessage butuh message object yang valid
+            mediaType    = quotedAudio.ptt ? 'voice_note' : 'audio';
+            mimetype     = quotedAudio.mimetype || 'audio/ogg';
+            ext          = mimetype.includes('mp4') ? 'm4a' : 'ogg';
+            isFromQuoted = true;
+
+            // Buat WAMessage wrapper untuk quoted content
+            targetMsg = {
+                key: {
+                    remoteJid: rawMessage.key?.remoteJid,
+                    id:        ctxInfo.stanzaId || rawMessage.key?.id,
+                    fromMe:    false,
+                    participant: ctxInfo.participant || rawMessage.key?.participant,
+                },
+                message: { audioMessage: quotedAudio },
+            };
+
+            logger.info('[RuleEngine] Trying to download quoted audio message...');
+        }
     }
 
     if (!mediaType) return null;
 
     try {
-        // Download buffer dari Baileys
+        // Download buffer dari Baileys (bisa dari pesan langsung atau quoted)
         const buffer = await downloadMediaMessage(
-            rawMessage,
+            targetMsg,
             'buffer',
             {},
             { logger, reuploadRequest: client?.updateMediaMessage }
@@ -82,6 +114,19 @@ const extractAndSaveMedia = async (normalizedMsg, userId) => {
 
         if (!buffer || buffer.length === 0) {
             logger.warn('[RuleEngine] Media buffer empty, skip media attach');
+            if (isFromQuoted) {
+                // Return metadata saja tanpa buffer - agar n8n tahu ada quoted audio
+                return {
+                    type:     mediaType,
+                    url:      null,
+                    base64:   null,
+                    mimetype,
+                    fileSize: null,
+                    caption,
+                    filename,
+                    source:   'quotedMessage',
+                };
+            }
             return null;
         }
 
@@ -104,16 +149,45 @@ const extractAndSaveMedia = async (normalizedMsg, userId) => {
 
         logger.info(`[RuleEngine] Media saved for webhook: ${savePath} (${buffer.length} bytes)`);
 
+        // Base64 hanya untuk file < 8MB - file besar hanya kirim URL
+        const MAX_BASE64_BYTES = 8 * 1024 * 1024; // 8 MB
+        const base64Data = buffer.length <= MAX_BASE64_BYTES
+            ? buffer.toString('base64')
+            : null;  // file besar: skip base64, n8n download via internalUrl
+
+        if (!base64Data) {
+            logger.info(`[RuleEngine] Audio too large for base64 (${(buffer.length/1024/1024).toFixed(1)}MB), n8n will fetch via internalUrl`);
+        }
+
+        // internalUrl: URL yang bisa diakses n8n via Docker internal network
+        const internalUrl = `http://wabot-backend:3002/uploads/${userId}/webhook-media/${saveName}`;
+
         return {
-            type:     mediaType,
-            url:      publicUrl,
+            type:      mediaType,
+            url:       publicUrl,
+            internalUrl,     // selalu ada - untuk n8n download file besar
+            base64:    base64Data,  // null jika file > 8MB
             mimetype,
-            fileSize: buffer.length,
+            fileSize:  buffer.length,
             caption,
             filename,
+            source:    isFromQuoted ? 'quotedMessage' : 'direct',
         };
     } catch (err) {
         logger.warn(`[RuleEngine] Failed to extract media for webhook: ${err.message}`);
+        if (isFromQuoted) {
+            // Kembalikan metadata saja agar n8n bisa info ke AI
+            return {
+                type:     mediaType,
+                url:      null,
+                base64:   null,
+                mimetype,
+                fileSize: null,
+                caption,
+                filename,
+                source:   'quotedMessage',
+            };
+        }
         return null;
     }
 };
@@ -244,8 +318,12 @@ export const processMessage = async (normalizedMsg) => {
         // Cek apakah ini voice note (audio)
         const isVoiceNote = rawMessage?.message?.audioMessage?.ptt === true;
 
-        // Hanya skip jika teks kosong DAN bukan voice note
-        if (!text && !isVoiceNote) return;
+        // Cek apakah ada media (image/video/document/sticker/audio)
+        const trueMsg = extractMessageContent(rawMessage?.message);
+        const isMediaMessage = !!(trueMsg?.imageMessage || trueMsg?.videoMessage || trueMsg?.documentMessage || trueMsg?.stickerMessage || trueMsg?.audioMessage);
+
+        // Hanya skip jika teks kosong DAN bukan media apapun
+        if (!text && !isVoiceNote && !isMediaMessage) return;
 
         // Deduplication using message ID (Redis instead of memory Set)
         // Note: For Telegram, message_id is unique only within a chat, so we use platform:sessionId:msgId
@@ -318,8 +396,7 @@ export const processMessage = async (normalizedMsg) => {
             return true; // Stop — jangan proses Auto Reply rules
         }
 
-        // Jika voice note tapi tidak ada app yang handle, stop di sini
-        if (isVoiceNote) return false;
+        // Jika voice note atau media tapi tidak ada app yang handle, tetap proses rules
 
         const rules = await prisma.rule.findMany({
             where: {
@@ -386,7 +463,7 @@ const executeAction = async (rule, normalizedMsg) => {
             // 1. Context extraction
             const context = {
                 messageText: messageText,
-                senderName: normalizedMsg.pushName || normalizedMsg.participant?.split('@')[0] || 'User',
+                senderName: normalizedMsg.pushName || normalizedMsg.rawMessage?.pushName || normalizedMsg.participant?.split('@')[0].replace(/:.*$/, '') || 'User',
                 senderNumber: normalizedMsg.participant ? normalizedMsg.participant.split('@')[0] : '',
                 sessionId: sessionId
             };
@@ -453,7 +530,7 @@ const executeAction = async (rule, normalizedMsg) => {
                 ...apiPayloadObj,
                 sessionId,
                 sender: {
-                    name:   normalizedMsg.pushName || context.senderName,
+                    name:   normalizedMsg.pushName || normalizedMsg.rawMessage?.pushName || context.senderName,
                     number: context.senderNumber,
                     jid:    normalizedMsg.participant || normalizedMsg.jid,
                 },

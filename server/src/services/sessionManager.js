@@ -128,14 +128,19 @@ export const startSession = async (sessionId) => {
                     const isVoiceNote = !!(trueMsg?.audioMessage);
                     const isPTT       = trueMsg?.audioMessage?.ptt === true;
 
+                    // Deteksi media apapun (image, video, document, sticker)
+                    const isMediaMessage = !!(trueMsg?.imageMessage || trueMsg?.videoMessage || trueMsg?.documentMessage || trueMsg?.stickerMessage);
+
                     const content = trueMsg?.conversation ||
                         trueMsg?.extendedTextMessage?.text ||
                         trueMsg?.imageMessage?.caption ||
+                        trueMsg?.videoMessage?.caption ||
                         trueMsg?.audioMessage?.caption ||
+                        trueMsg?.documentMessage?.fileName ||
                         "";
 
-                    // Skip pesan kosong KECUALI ada audio (voice note maupun file audio)
-                    if (!content && !isVoiceNote) continue;
+                    // Skip pesan kosong KECUALI ada audio atau media apapun
+                    if (!content && !isVoiceNote && !isMediaMessage) continue;
 
                     const remoteJid = msg.key.remoteJid;
 
@@ -145,7 +150,7 @@ export const startSession = async (sessionId) => {
                             direction: isFromMe ? 'OUT' : 'IN',
                             from: isFromMe ? sessionId : remoteJid,
                             to: isFromMe ? remoteJid : sessionId,
-                            content: isPTT ? '[voice note]' : isVoiceNote ? '[audio file]' : content,
+                            content: isPTT ? '[voice note]' : isVoiceNote ? '[audio file]' : isMediaMessage && !content ? '[media]' : content,
                             status: isFromMe ? 'SENT' : 'RECEIVED'
                         }
                     });
@@ -162,7 +167,8 @@ export const startSession = async (sessionId) => {
                             jid,
                             content, // kosong untuk voice note, App akan pakai rawMessage
                             msg,
-                            sock
+                            sock,
+                            msg.pushName || null  // nama display pengirim dari Baileys
                         );
 
                         await ruleEngine.processMessage(normalizedMsg);

@@ -8,9 +8,7 @@
  *   - SSRF protection (public HTTPS only) via urlGuard
  *   - request timeout via urlGuard
  *   - safe response parsing (JSON when possible, text otherwise)
- *
- * Previously this logic was duplicated in ruleEngine, schedulerService, and
- * messageController, each with subtle differences.
+ *   - multipart/form-data support untuk kirim media binary ke n8n
  */
 import { validateOutboundUrl, fetchWithTimeout } from '../utils/urlGuard.js';
 import { fixJsonString } from '../utils/jsonUtils.js';
@@ -18,9 +16,6 @@ import { logger } from '../config/logger.js';
 
 /**
  * Inject a stored credential into the request headers / URL.
- * BEARER is handled first (independent of location), then HEADER / QUERY placement.
- * QUERY key & value are URL-encoded so special characters can't break the URL.
- * @returns {string} the (possibly modified) URL
  */
 export const applyCredential = (url, headers, credential) => {
     if (!credential) return url;
@@ -35,7 +30,7 @@ export const applyCredential = (url, headers, credential) => {
     return url;
 };
 
-/** Parse a response body safely: JSON only when the body really is JSON, else as text. */
+/** Parse a response body safely */
 const parseResponse = async (response, label) => {
     const contentType = response.headers.get('content-type') || '';
     if (contentType.includes('application/json')) {
@@ -59,17 +54,7 @@ export const extractReplyText = (data) => {
 };
 
 /**
- * Perform an outbound API call.
- * @param {object}  opts
- * @param {string}  opts.url        - target URL (may contain pre-substituted variables)
- * @param {string} [opts.method]    - HTTP method (default GET)
- * @param {string} [opts.payload]   - raw JSON payload string; auto-validated/fixed
- * @param {string} [opts.body]      - already-serialized body (takes precedence over payload)
- * @param {object} [opts.credential]- stored credential { type, location, key, value }
- * @param {object} [opts.headers]   - extra headers
- * @param {string} [opts.label]     - log label
- * @param {boolean}[opts.fixJson]   - attempt to repair invalid JSON payloads (default true)
- * @returns {Promise<{ok:boolean,status:number,data:any,replyText:string}>}
+ * Perform an outbound API call (JSON body).
  */
 export const executeApiCall = async ({
     url,
@@ -109,7 +94,6 @@ export const executeApiCall = async ({
         }
     }
 
-    // SSRF guard — throws on private/non-HTTPS targets
     const safeUrl = validateOutboundUrl(finalUrl);
     const response = await fetchWithTimeout(safeUrl, options);
 
@@ -121,4 +105,81 @@ export const executeApiCall = async ({
     logger.info(`[${label}] Outbound request executed. Status: ${response.status}`);
 
     return { ok: response.ok, status: response.status, data, replyText: extractReplyText(data) };
+};
+
+/**
+ * Kirim media ke n8n / webhook sebagai multipart/form-data.
+ * Berguna saat media perlu dikirim langsung sebagai binary file
+ * (tanpa n8n harus fetch URL dari server).
+ *
+ * @param {object} opts
+ * @param {string} opts.url              - target URL
+ * @param {object} opts.jsonFields       - field JSON yang disertakan sebagai string
+ * @param {object} opts.mediaInfo        - info media dari extractAndSaveMedia
+ * @param {Buffer} opts.mediaBuffer      - binary file media
+ * @param {object} [opts.credential]     - stored credential
+ * @param {string} [opts.label]
+ * @returns {Promise<{ok,status,data,replyText}>}
+ */
+export const executeApiCallMultipart = async ({
+    url,
+    jsonFields = {},
+    mediaInfo = null,
+    mediaBuffer = null,
+    credential,
+    label = 'API_CALL_MULTIPART',
+}) => {
+    const reqHeaders = {};
+    let finalUrl = applyCredential(url, reqHeaders, credential);
+
+    // Build FormData using Node.js built-in FormData (Node 18+)
+    const form = new FormData();
+
+    // Append semua JSON fields sebagai string
+    for (const [key, value] of Object.entries(jsonFields)) {
+        const strVal = typeof value === 'string' ? value : JSON.stringify(value);
+        form.append(key, strVal);
+    }
+
+    // Append file jika ada
+    if (mediaBuffer && mediaInfo) {
+        const filename = mediaInfo.filename || `media_${Date.now()}.${getExt(mediaInfo.mimetype)}`;
+        const blob = new Blob([mediaBuffer], { type: mediaInfo.mimetype || 'application/octet-stream' });
+        form.append('file', blob, filename);
+        form.append('mediaType', mediaInfo.type || 'file');
+        form.append('mediaMimetype', mediaInfo.mimetype || 'application/octet-stream');
+        if (mediaInfo.caption) form.append('mediaCaption', mediaInfo.caption);
+        if (mediaInfo.filename) form.append('mediaFilename', mediaInfo.filename);
+    }
+
+    const safeUrl = validateOutboundUrl(finalUrl);
+    const response = await fetchWithTimeout(safeUrl, {
+        method: 'POST',
+        headers: reqHeaders, // jangan set Content-Type manual — fetch otomatis set boundary
+        body: form,
+    });
+
+    if (!response.ok) {
+        logger.warn(`[${label}] Non-OK status ${response.status} from ${safeUrl}`);
+    }
+
+    const data = await parseResponse(response, label);
+    logger.info(`[${label}] Multipart request executed. Status: ${response.status}`);
+
+    return { ok: response.ok, status: response.status, data, replyText: extractReplyText(data) };
+};
+
+const getExt = (mimetype = '') => {
+    const map = {
+        'image/jpeg': 'jpg',
+        'image/png': 'png',
+        'image/webp': 'webp',
+        'image/gif': 'gif',
+        'video/mp4': 'mp4',
+        'audio/ogg': 'ogg',
+        'audio/mpeg': 'mp3',
+        'audio/mp4': 'm4a',
+        'application/pdf': 'pdf',
+    };
+    return map[mimetype] || 'bin';
 };

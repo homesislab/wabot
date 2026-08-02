@@ -8,7 +8,7 @@ import { sendOutgoingMessageBySession } from '../services/messageAdapter.js';
 import { executeApiCall } from '../services/outboundRequest.js';
 
 export const sendMessage = async (req, res) => {
-    const { sessionId, to, type, content, mediaUrl } = req.body;
+    const { sessionId, to, type, content, mediaUrl, latitude, longitude, locationName } = req.body;
     const userId = req.user.id;
 
     const hasCredits = await creditService.checkCredits(userId);
@@ -53,6 +53,23 @@ export const sendMessage = async (req, res) => {
             payload = { text: content };
         } else if (type === 'IMAGE') {
             payload = { image: { url: mediaUrl }, caption: content };
+        } else if (type === 'LOCATION') {
+            const lat = parseFloat(latitude);
+            const lon = parseFloat(longitude);
+            if (isNaN(lat) || isNaN(lon)) {
+                return res.status(400).json({ error: 'latitude and longitude are required for LOCATION type' });
+            }
+            payload = {
+                location: {
+                    degreesLatitude: lat,
+                    degreesLongitude: lon,
+                    ...(locationName ? { name: locationName } : {})
+                }
+            };
+        }
+
+        if (!payload) {
+            return res.status(400).json({ error: `Unsupported message type: ${type}` });
         }
 
         const sent = await sendOutgoingMessageBySession(sessionId, jid, payload, null);
