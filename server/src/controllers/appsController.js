@@ -1,6 +1,7 @@
 import { prisma } from '../prisma.js';
 import { getCatalogForUser } from '../apps/AppRegistry.js';
 import { logger } from '../config/logger.js';
+import path from 'path';
 
 /**
  * GET /api/apps
@@ -203,5 +204,59 @@ export const deleteApp = async (req, res) => {
   } catch (error) {
     logger.error(`[AppsController] deleteApp error: ${error.message}`);
     res.status(500).json({ error: 'Gagal menghapus app' });
+  }
+};
+
+/**
+ * POST /api/apps/:appId/analyze
+ * Menganalisis file audio dengan AI (Whisper / Gemini) menggunakan prompt dari MiniApp
+ */
+export const analyzeAudio = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { appId } = req.params;
+    const { filename, customPrompt, customReference } = req.body;
+
+    if (!filename) {
+      return res.status(400).json({ error: 'Filename wajib dikirim' });
+    }
+
+    // 1. Ambil user AI Config
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { aiApiKey: true, aiProvider: true, aiModel: true }
+    });
+
+    if (!user || !user.aiApiKey) {
+      return res.status(400).json({ error: 'AI API Key belum dikonfigurasi di Profil.' });
+    }
+
+    // 2. Ambil MiniApp Config jika appId bukan 'default'
+    let systemPrompt = customPrompt || 'Analisis dan buat ringkasan / summary detail dari audio yang dilampirkan.';
+    let referenceText = customReference || '';
+
+    if (appId && appId !== 'default') {
+      const app = await prisma.miniApp.findFirst({ where: { id: appId, userId } });
+      if (app) {
+        if (!customPrompt) {
+          systemPrompt = app.systemPrompt || systemPrompt;
+        }
+        if (!customReference) {
+          referenceText = app.referenceText || referenceText;
+        }
+      }
+    }
+
+    // 3. Bangun path file
+    const filePath = path.join('uploads', String(userId), filename);
+
+    // 4. Jalankan AI Analysis
+    const { analyzeAudioFile } = await import('../services/aiService.js');
+    const result = await analyzeAudioFile(filePath, user, systemPrompt, referenceText);
+
+    res.json({ result });
+  } catch (error) {
+    logger.error(`[AppsController] analyzeAudio error: ${error.message}`);
+    res.status(500).json({ error: error.message || 'Gagal menganalisis audio' });
   }
 };

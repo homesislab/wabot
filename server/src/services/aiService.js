@@ -3,6 +3,8 @@ import { logger } from '../config/logger.js';
 import { executeTool } from './toolManager.js';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import OpenAI from 'openai';
+import fs from 'fs';
+import path from 'path';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const AI_CONFIG = Object.freeze({
@@ -444,4 +446,94 @@ export const generateImage = async (apiKey, provider, prompt) => {
     // 5. All providers failed — return null so caller can send a proper error message to user
     logger.error(`All image providers failed for prompt: ${prompt.substring(0, 80)}`);
     return null;
+};
+
+/**
+ * Transcribe or directly analyze audio files using the user's AI config (OpenAI Whisper or Gemini native audio)
+ * 
+ * @param {string} filePath - Absolute path to the audio file on the server
+ * @param {object} user - User object containing provider, apiKey, and model
+ * @param {string} systemPrompt - Prompt / custom system prompt for the summary or analysis
+ * @param {string} referenceText - Reference text to guide or verify the content
+ */
+export const analyzeAudioFile = async (filePath, user, systemPrompt, referenceText) => {
+    const provider = user.aiProvider || 'openai';
+    const apiKey = user.aiApiKey;
+    const modelName = user.aiModel;
+
+    if (!apiKey) {
+        throw new Error('API Key tidak dikonfigurasi. Hubungi admin atau atur di Profil.');
+    }
+
+    if (!fs.existsSync(filePath)) {
+        throw new Error('File audio tidak ditemukan di server.');
+    }
+
+    const ext = path.extname(filePath).toLowerCase();
+    let mimeType = 'audio/mp3';
+    if (ext === '.wav') mimeType = 'audio/wav';
+    else if (ext === '.ogg') mimeType = 'audio/ogg';
+    else if (ext === '.m4a') mimeType = 'audio/m4a';
+    else if (ext === '.webm') mimeType = 'audio/webm';
+    else if (ext === '.aac') mimeType = 'audio/aac';
+    else if (ext === '.flac') mimeType = 'audio/flac';
+
+    // Build instruction prompt
+    const instructions = `${systemPrompt || 'Analisis dan buat ringkasan / summary detail dari audio yang dilampirkan.'}
+${referenceText ? `\nGunakan teks referensi berikut untuk membantu analisis atau verifikasi:\n${referenceText}` : ''}`;
+
+    if (provider === 'gemini') {
+        logger.info(`[AudioAnalysis] Using Gemini (${modelName || 'gemini-1.5-flash'}) for direct audio analysis`);
+        const genAI = getGeminiClient(apiKey);
+        const model = genAI.getGenerativeModel({
+            model: modelName || 'gemini-1.5-flash',
+            systemInstruction: "Kamu adalah AI analis audio profesional. Berikan hasil analisis dan ringkasan yang terstruktur dan mudah dipahami."
+        });
+
+        const audioBuffer = fs.readFileSync(filePath);
+        const audioBase64 = audioBuffer.toString('base64');
+
+        const promptParts = [
+            {
+                inlineData: {
+                    data: audioBase64,
+                    mimeType: mimeType
+                }
+            },
+            {
+                text: instructions
+            }
+        ];
+
+        const result = await model.generateContent(promptParts);
+        return result.response.text();
+    } else {
+        // OpenAI / Ollama: transcription first, then analysis
+        logger.info(`[AudioAnalysis] Using OpenAI Whisper for transcription, then ${modelName || 'gpt-4o-mini'} for analysis`);
+        const openai = getOpenAIClient(apiKey);
+        
+        // 1. Transkripsi
+        const transcription = await openai.audio.transcriptions.create({
+            file: fs.createReadStream(filePath),
+            model: 'whisper-1'
+        });
+
+        const transcriptText = transcription.text?.trim();
+        if (!transcriptText) {
+            return "Audio tidak berisi suara atau tidak dapat didekripsi oleh Whisper.";
+        }
+
+        logger.info(`[AudioAnalysis] Transcription success (${transcriptText.length} chars). Proceeding to analyze.`);
+
+        // 2. Analisis & Ringkas
+        const completion = await openai.chat.completions.create({
+            model: modelName || 'gpt-4o-mini',
+            messages: [
+                { role: 'system', content: instructions },
+                { role: 'user', content: `Berikut adalah transkripsi dari file audio. Silahkan lakukan analisis/summary sesuai instruksi:\n\n"${transcriptText}"` }
+            ]
+        });
+
+        return completion.choices[0].message.content;
+    }
 };

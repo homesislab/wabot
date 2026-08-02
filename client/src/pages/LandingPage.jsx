@@ -24,9 +24,14 @@ const LandingPage = () => {
                             <a href="#features" className="text-gray-600 hover:text-sisia-primary transition-colors font-medium">Features</a>
                             <a href="#pricing" className="text-gray-600 hover:text-sisia-primary transition-colors font-medium">Pricing</a>
                             <a href="#contact" className="text-gray-600 hover:text-sisia-primary transition-colors font-medium">Contact</a>
-                            <Link to="/login" className="px-5 py-2.5 rounded-full bg-sisia-primary text-white font-medium hover:bg-sisia-dark transition-all shadow-md hover:shadow-lg transform hover:-translate-y-0.5">
-                                Login / Register
-                            </Link>
+                            <div className="flex items-center gap-3">
+                                <Link to="/login" className="px-5 py-2.5 rounded-full border border-sisia-primary text-sisia-primary font-medium hover:bg-sisia-light/50 transition-all">
+                                    Login
+                                </Link>
+                                <Link to="/register" className="px-5 py-2.5 rounded-full bg-sisia-primary text-white font-medium hover:bg-sisia-dark transition-all shadow-md hover:shadow-lg transform hover:-translate-y-0.5">
+                                    Register
+                                </Link>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -36,8 +41,11 @@ const LandingPage = () => {
                         <a href="#features" onClick={() => setIsMobileMenuOpen(false)} className="text-gray-600 hover:text-sisia-primary font-medium p-2">Features</a>
                         <a href="#pricing" onClick={() => setIsMobileMenuOpen(false)} className="text-gray-600 hover:text-sisia-primary font-medium p-2">Pricing</a>
                         <a href="#contact" onClick={() => setIsMobileMenuOpen(false)} className="text-gray-600 hover:text-sisia-primary font-medium p-2">Contact</a>
-                        <Link to="/login" onClick={() => setIsMobileMenuOpen(false)} className="px-5 py-3 text-center rounded-xl bg-sisia-primary text-white font-medium hover:bg-sisia-dark shadow-md">
-                            Login / Register
+                        <Link to="/login" onClick={() => setIsMobileMenuOpen(false)} className="px-5 py-3 text-center rounded-xl border border-sisia-primary text-sisia-primary font-medium hover:bg-sisia-light/50">
+                            Login
+                        </Link>
+                        <Link to="/register" onClick={() => setIsMobileMenuOpen(false)} className="px-5 py-3 text-center rounded-xl bg-sisia-primary text-white font-medium hover:bg-sisia-dark shadow-md">
+                            Register
                         </Link>
                     </div>
                 )}
@@ -61,10 +69,12 @@ const LandingPage = () => {
                             Sisia empowers your business with intelligent auto-replies, bulk messaging, and seamless API integration. Connect with customers like never before.
                         </p>
                         <div className="flex flex-col sm:flex-row gap-4 justify-center">
-                            <Link to="/login" className="px-8 py-4 rounded-full bg-sisia-primary text-white font-bold text-lg hover:bg-sisia-dark transition-all shadow-xl hover:shadow-2xl flex items-center justify-center gap-2">
+                            <Link to="/register" className="px-8 py-4 rounded-full bg-sisia-primary text-white font-bold text-lg hover:bg-sisia-dark transition-all shadow-xl hover:shadow-2xl flex items-center justify-center gap-2">
                                 Get Started Free <ArrowRight size={20} />
                             </Link>
-
+                            <Link to="/login" className="px-8 py-4 rounded-full bg-white text-sisia-dark border border-gray-200 font-bold text-lg hover:border-sisia-primary hover:text-sisia-primary transition-all shadow flex items-center justify-center gap-2">
+                                Sign In
+                            </Link>
                         </div>
                     </div>
                 </div>

@@ -10,5 +10,6 @@ router.post('/', appsController.createApp);
 router.put('/:appId/toggle', appsController.toggleApp);
 router.put('/:appId', appsController.updateApp);
 router.delete('/:appId', appsController.deleteApp);
+router.post('/:appId/analyze', appsController.analyzeAudio);
 
 export default router;

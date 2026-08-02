@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import api from '../api';
-import { Plus, Trash, Edit, X, Mic, Keyboard, Zap, ChevronDown, ChevronUp, Loader, Camera } from 'lucide-react';
+import { Plus, Trash, Edit, X, Mic, Keyboard, Zap, ChevronDown, ChevronUp, Loader, Camera, Upload, FileAudio, Sparkles, Copy, Check } from 'lucide-react';
 
 const categoryColors = {
   'Islami':   'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
@@ -63,6 +63,61 @@ export default function MiniApps() {
   const [saving, setSaving] = useState(false);
   const [showIconPicker, setShowIconPicker] = useState(false);
   const [editingIsStatic, setEditingIsStatic] = useState(false);
+
+  // Audio Analyzer states
+  const [showAnalyzer, setShowAnalyzer] = useState(false);
+  const [selectedAnalyzerApp, setSelectedAnalyzerApp] = useState('default');
+  const [audioFile, setAudioFile] = useState(null);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [analysisStep, setAnalysisStep] = useState('');
+  const [analysisResult, setAnalysisResult] = useState('');
+  const [analysisError, setAnalysisError] = useState('');
+  const [copied, setCopied] = useState(false);
+
+  const handleAnalyzeAudio = async () => {
+    if (!audioFile) return;
+    setAnalyzing(true);
+    setAnalysisError('');
+    setAnalysisResult('');
+    setAnalysisStep('Mengunggah file...');
+
+    try {
+      // 1. Upload file
+      const formData = new FormData();
+      formData.append('file', audioFile);
+      const uploadRes = await api.post('/upload', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+
+      const { filename } = uploadRes.data;
+      if (!filename) {
+        throw new Error('Gagal mengunggah file.');
+      }
+
+      // 2. Minta analisis audio
+      setAnalysisStep('Mentranskripsi & Menganalisis dengan AI...');
+      const analyzeRes = await api.post(`/apps/${selectedAnalyzerApp}/analyze`, { filename });
+
+      if (analyzeRes.data && analyzeRes.data.result) {
+        setAnalysisResult(analyzeRes.data.result);
+      } else {
+        throw new Error('Hasil analisis kosong.');
+      }
+    } catch (err) {
+      console.error(err);
+      setAnalysisError(err.response?.data?.error || err.message || 'Gagal menganalisis audio.');
+    } finally {
+      setAnalyzing(false);
+      setAnalysisStep('');
+    }
+  };
+
+  const handleCopyResult = () => {
+    navigator.clipboard.writeText(analysisResult);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
 
   const fetchApps = useCallback(async () => {
     try {
@@ -166,13 +221,176 @@ export default function MiniApps() {
             <p className="text-sm text-gray-400">Aktifkan fitur tambahan untuk bot WhatsApp Anda</p>
           </div>
         </div>
-        <button
-          onClick={() => { setShowForm(true); setEditingId(null); setForm(EMPTY_FORM); }}
-          className="flex items-center gap-2 bg-violet-600 hover:bg-violet-700 text-white px-4 py-2 rounded-lg font-medium transition-colors text-sm"
-        >
-          <Plus size={16} /> Buat Mini App
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => { setShowAnalyzer(!showAnalyzer); if (!showAnalyzer) { setAnalysisResult(''); setAnalysisError(''); } }}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors text-sm border
+              ${showAnalyzer 
+                ? 'bg-amber-600/20 border-amber-500/30 text-amber-300 hover:bg-amber-600/30' 
+                : 'bg-gray-800 border-gray-700 hover:bg-gray-750 text-white'}`}
+          >
+            <Mic size={16} /> {showAnalyzer ? 'Tutup Analisis' : '🎙️ Analisis Audio'}
+          </button>
+          <button
+            onClick={() => { setShowForm(true); setEditingId(null); setForm(EMPTY_FORM); }}
+            className="flex items-center gap-2 bg-violet-600 hover:bg-violet-700 text-white px-4 py-2 rounded-lg font-medium transition-colors text-sm"
+          >
+            <Plus size={16} /> Buat Mini App
+          </button>
+        </div>
       </div>
+
+      {/* AUDIO ANALYZER PANEL */}
+      {showAnalyzer && (
+        <div className="bg-gray-900 border border-amber-500/30 rounded-2xl p-6 mb-8 shadow-xl">
+          <div className="flex items-center justify-between mb-5">
+            <div className="flex items-center gap-2">
+              <span className="text-xl">🎙️</span>
+              <h2 className="font-bold text-lg text-amber-300">
+                Analisis & Summary Audio dengan AI
+              </h2>
+            </div>
+            <button onClick={() => setShowAnalyzer(false)} className="text-gray-400 hover:text-white"><X size={20}/></button>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Left side: upload and settings */}
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm text-gray-400 mb-1.5">Pilih Konfigurasi Mini App *</label>
+                <select
+                  value={selectedAnalyzerApp}
+                  onChange={e => setSelectedAnalyzerApp(e.target.value)}
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-amber-500"
+                >
+                  <option value="default">Default Summary AI (Umum)</option>
+                  {apps.map(app => (
+                    <option key={app.id} value={app.id}>
+                      {app.icon} {app.name} ({app.category})
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-gray-500 mt-1">AI akan menggunakan system prompt dan teks referensi dari Mini App terpilih.</p>
+              </div>
+
+              {/* Drag & Drop File Area */}
+              <div>
+                <label className="block text-sm text-gray-400 mb-1.5">Upload File Audio *</label>
+                <div
+                  onDragOver={e => e.preventDefault()}
+                  onDrop={e => {
+                    e.preventDefault();
+                    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+                      setAudioFile(e.dataTransfer.files[0]);
+                    }
+                  }}
+                  className={`border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-colors
+                    ${audioFile 
+                      ? 'border-emerald-500/50 bg-emerald-500/5' 
+                      : 'border-gray-700 hover:border-amber-500/50 hover:bg-gray-850'}`}
+                  onClick={() => document.getElementById('audio-upload-input').click()}
+                >
+                  <input
+                    type="file"
+                    id="audio-upload-input"
+                    accept="audio/*"
+                    className="hidden"
+                    onChange={e => {
+                      if (e.target.files && e.target.files[0]) {
+                        setAudioFile(e.target.files[0]);
+                      }
+                    }}
+                  />
+                  <div className="flex flex-col items-center justify-center gap-2">
+                    <FileAudio size={40} className={audioFile ? 'text-emerald-400 animate-bounce' : 'text-gray-500'} />
+                    {audioFile ? (
+                      <div>
+                        <p className="text-sm font-semibold text-emerald-400 line-clamp-1">{audioFile.name}</p>
+                        <p className="text-xs text-gray-500 mt-0.5">{(audioFile.size / (1024 * 1024)).toFixed(2)} MB</p>
+                      </div>
+                    ) : (
+                      <div>
+                        <p className="text-sm text-gray-300 font-medium">Klik untuk memilih atau drag & drop file audio</p>
+                        <p className="text-xs text-gray-500 mt-1">Mendukung MP3, WAV, OGG, M4A, WEBM, dll (Maksimal 25MB)</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Action buttons */}
+              <div className="flex gap-3 pt-2">
+                {audioFile && (
+                  <button
+                    type="button"
+                    onClick={() => setAudioFile(null)}
+                    className="px-4 py-2 rounded-lg border border-gray-700 text-gray-300 hover:bg-gray-800 transition-colors text-sm"
+                  >
+                    Hapus File
+                  </button>
+                )}
+                <button
+                  type="button"
+                  disabled={analyzing || !audioFile}
+                  onClick={handleAnalyzeAudio}
+                  className="flex-1 flex items-center justify-center gap-2 px-5 py-2 rounded-lg bg-amber-500 hover:bg-amber-600 disabled:bg-gray-800 disabled:text-gray-600 disabled:cursor-not-allowed text-black font-semibold transition-colors text-sm"
+                >
+                  {analyzing ? (
+                    <>
+                      <Loader size={16} className="animate-spin text-black" />
+                      <span>{analysisStep}</span>
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles size={16} />
+                      <span>Mulai Analisis</span>
+                    </>
+                  )}
+                </button>
+              </div>
+
+              {analysisError && (
+                <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-3 text-xs text-red-400">
+                  ⚠️ {analysisError}
+                </div>
+              )}
+            </div>
+
+            {/* Right side: Results */}
+            <div className="bg-gray-950 border border-gray-800 rounded-xl p-4 flex flex-col min-h-[300px]">
+              <div className="flex items-center justify-between border-b border-gray-850 pb-2 mb-3">
+                <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider flex items-center gap-1">
+                  <Sparkles size={12} className="text-amber-400"/> Hasil Analisis AI
+                </span>
+                {analysisResult && (
+                  <button
+                    onClick={handleCopyResult}
+                    className="text-xs text-gray-400 hover:text-white flex items-center gap-1 bg-gray-900 border border-gray-800 px-2 py-1 rounded transition-colors"
+                  >
+                    {copied ? <Check size={12} className="text-emerald-400"/> : <Copy size={12}/>}
+                    {copied ? 'Tersalin' : 'Salin'}
+                  </button>
+                )}
+              </div>
+
+              <div className="flex-1 overflow-y-auto max-h-[300px] text-sm text-gray-300 font-mono whitespace-pre-wrap">
+                {analyzing ? (
+                  <div className="flex flex-col items-center justify-center h-full gap-2 text-gray-500">
+                    <Loader size={24} className="animate-spin text-amber-500" />
+                    <p className="animate-pulse">{analysisStep}</p>
+                  </div>
+                ) : analysisResult ? (
+                  analysisResult
+                ) : (
+                  <div className="flex items-center justify-center h-full text-gray-500 text-xs text-center">
+                    Belum ada hasil.<br />Pilih file dan klik "Mulai Analisis" untuk memulai.
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* CREATE / EDIT FORM */}
       {showForm && (
